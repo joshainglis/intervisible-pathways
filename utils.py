@@ -108,7 +108,8 @@ def get_highest_points_from_multipoint_features(island_points, spatial_reference
     highest = {}
     fp = create_high_point_table(spatial_reference)
     sc = InsertCursor(fp, ['SHAPE@', 'Z', 'FID_island', 'FID_split_', 'FID_grid'])
-    for i, row in enumerate(SearchCursor(island_points, ["SHAPE@", 'FID_islands_points', "FID_split_islands", 'FID_grid'])):
+    for i, row in enumerate(
+        SearchCursor(island_points, ["SHAPE@", 'FID_islands_points', "FID_split_islands", 'FID_grid'])):
 
         candidate_point = highest.get(row[2], (None,))[0]
         for p in row[0]:
@@ -201,3 +202,8 @@ def get_high_points(all_points, islands_poly, region_of_interest, distance_to_sh
         **shared
     )
     return viewpoints
+
+
+def get_field_names(shp):
+    fieldnames = [f.name for f in arcpy.ListFields(shp)]
+    return fieldnames

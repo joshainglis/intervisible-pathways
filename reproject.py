@@ -35,6 +35,8 @@ def create_temp_point_table(spatial_reference):
     arcpy.AddField_management(fp, 'FID_island', field_type='LONG')
     arcpy.AddField_management(fp, 'FID_split_', field_type='LONG')
     arcpy.AddField_management(fp, 'FID_grid', field_type='LONG')
+    arcpy.AddField_management(fp, 'FID_point', field_type='LONG')
+    arcpy.AddField_management(fp, 'observer', field_type='SHORT')
     return fp
 
 
@@ -42,7 +44,7 @@ def reset_tmp(to_replace=None):
     if to_replace is not None:
         arcpy.Delete_management(to_replace)
     tmp_tbl = create_temp_point_table(spatial_reference)
-    search_cursor = InsertCursor(tmp_tbl, ['SHAPE@', 'Z', 'FID_island', 'FID_split_', 'FID_grid'])
+    search_cursor = InsertCursor(tmp_tbl, ['SHAPE@', 'Z', 'FID_island', 'FID_split_', 'FID_grid', 'FID_point', 'observer'])
     return tmp_tbl, search_cursor
 
 
@@ -74,7 +76,8 @@ for sea_level in SEA_LEVELS:
 
     viewshed_folder = join(ws, 'viewsheds')
     tmp_table_folder = join(ws, 'observer_groups')
-    for directory in [viewshed_folder, tmp_table_folder]:
+    point_table_folder = join(ws, 'observer_points')
+    for directory in [viewshed_folder, tmp_table_folder, point_table_folder]:
         if not exists(directory):
             mkdir(directory)
 
@@ -86,15 +89,15 @@ for sea_level in SEA_LEVELS:
 
     # noinspection PyRedeclaration
     tmp_table, sc = reset_tmp()
-    for i, row in enumerate(SearchCursor(viewpoints, ['SHAPE@', 'Z', 'FID_island', 'FID_split_', 'FID_grid'])):
+    for i, row in enumerate(SearchCursor(viewpoints, ['SHAPE@', 'Z', 'FID_island', 'FID_split_', 'FID_grid', 'FID'])):
         d, m = divmod(i, OBSERVER_GROUP_SIZE)
-        if (i > 0 and m == 0) or (i == total_rows - 1):
-            c = d + bool(m)
+        if (i > 0 and m == 0) or (i == (total_rows - 1)):
+            c = d + int(m > 0)
 
             save_raster_to = join(viewshed_folder, 'viewshed_{:04d}'.format(c))
             save_observers_to = join(ws, "tst_points_{:04d}".format(c))
             save_observer_relations_to = join(tmp_table_folder, 'observer_relations_{:04d}'.format(c))
-            save_dirs = [save_raster_to, save_raster_to, save_observer_relations_to]
+            save_dirs = [save_raster_to, save_observers_to, save_observer_relations_to]
 
             if (not overwrite_existing) and all(exists(path) for path in save_dirs):
                 tmp_table, sc = reset_tmp(tmp_table)
@@ -103,7 +106,7 @@ for sea_level in SEA_LEVELS:
             arcpy.CopyFeatures_management(tmp_table, save_observers_to)
 
             arcpy.AddMessage("doing viewshed {} of {}".format(c, total_rasters))
-            out_raster, _, out_observer_region_relationship_table = arcpy.Viewshed2_3d(
+            out_raster, _, _ = arcpy.Viewshed2_3d(
                 in_raster=sea_level_raster,
                 in_observer_features=tmp_table,
                 out_raster=save_raster_to,
@@ -114,7 +117,7 @@ for sea_level in SEA_LEVELS:
                 refractivity_coefficient="0.13",
                 surface_offset="0 Meters",
                 observer_elevation="Z",
-                observer_offset="5 Meters",
+                observer_offset="2 Meters",
                 inner_radius=None,
                 inner_radius_is_3d="GROUND",
                 outer_radius="300 Kilometers",
@@ -127,6 +130,6 @@ for sea_level in SEA_LEVELS:
             )
 
             tmp_table, sc = reset_tmp(tmp_table)
-        sc.insertRow(row)
+        sc.insertRow(row + (i % OBSERVER_GROUP_SIZE,))
 
     arcpy.AddMessage("done getting points")
