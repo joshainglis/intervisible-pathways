@@ -16,18 +16,29 @@ workspace = join(expanduser('~'), 'Documents', 'Wallacea Viewshed', 'Scratch', '
 env.workspace = workspace
 env.overwriteOutput = True
 
-viewpoints = join(workspace, "observer_points", "obs_points_0001.shp")
-fieldnames = get_field_names(viewpoints)
-
 viewshed_folder = join(workspace, 'individual_viewsheds')
 for directory in [viewshed_folder]:
     if not exists(directory):
         mkdir(directory)
 
-R = Raster(join(workspace, 'viewsheds', 'viewshed_0001'))
+for vs_num in range(105, 106):
+    try:
+        viewpoints = join(workspace, "tst_points_{:04d}.shp".format(vs_num))
 
-for i, row in enumerate(SearchCursor(viewpoints, ['FID_island', 'FID_point', 'observer'])):
-    print(row)
-    val = 1 if row[2] < 31 else -1
-    extracted = Con(BitwiseAnd(R, (val << int(row[2]))), 1, None)
-    extracted.save(join(viewshed_folder, 'i{:04d}_p{:05d}'.format(row[0], row[1])))
+        R = Raster(join(workspace, 'viewsheds', 'viewshed_{:04d}'.format(vs_num)))
+
+        vs_dir = join(viewshed_folder, '{:03d}'.format(vs_num))
+        if not exists(vs_dir):
+            mkdir(vs_dir)
+
+        for i, row in enumerate(SearchCursor(viewpoints, ['FID', 'FID_split_'])):
+            try:
+                print("{:03d}: {}".format(vs_num, row))
+                val = 1 if row[0] < 31 else -1
+                extracted = Con(BitwiseAnd(R, (val << int(row[0]))), 1, None)
+                extracted.save(join(vs_dir, 'v{:03d}i{:05d}o{:02d}'.format(vs_num, row[1], row[0])))
+            except Exception as e:
+                print("Problem on {}-{}: {}".format(vs_num, i, e.message))
+
+    except Exception as e:
+        print("Problem on {}: {}".format(vs_num, e.message))
