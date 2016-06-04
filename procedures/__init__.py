@@ -1,49 +1,16 @@
-from os import mkdir
-from os.path import join, exists
+from arcgisscripting import Raster
+from genericpath import exists
+from math import ceil
+from os import makedirs
+from os.path import join
 
 import arcpy
-from arcpy import CreateFeatureclass_management, AddField_management, RasterToPolygon_conversion, \
-    GridIndexFeatures_cartography, Intersect_analysis, RasterToMultipoint_3d, \
-    Describe, CopyFeatures_management, Buffer_analysis, AddMessage, Exists
-from arcpy import Point
+from arcpy import Exists, env, Describe, Buffer_analysis, Intersect_analysis, GridIndexFeatures_cartography, \
+    RasterToPolygon_conversion, RasterToMultipoint_3d, CreateFeatureclass_management, AddField_management
 from arcpy.da import InsertCursor, SearchCursor
-from arcpy.sa import Raster, ExtractByMask, Con
+from arcpy.sa import Con
 
-
-def create_dirs(dirs):
-    """
-    :type dirs: str | list[str]
-    """
-    if isinstance(dirs, basestring):
-        dirs = [dirs]
-    for directory in dirs:
-        if not exists(directory):
-            arcpy.AddMessage("Creating directory: {}".format(directory))
-            mkdir(directory)
-
-
-def in_mem(var):
-    """
-    :param var: str
-    :return: str
-    """
-    return join('in_memory', var)
-
-
-def get_output_loc(given, default):
-    return in_mem(default) if given is None else given
-
-
-def get_field_names(shp):
-    """
-    :type shp: str
-    :rtype: list[str]
-    """
-    return [f.name for f in arcpy.ListFields(shp)]
-
-
-def print_fields(shp):
-    AddMessage('{}: {}'.format(shp, map(str, get_field_names(shp))))
+from utils import get_output_loc, print_fields, in_mem, OBSERVER_GROUP_SIZE, reproject
 
 
 def create_sea_level_island_polygons(base_raster, sea_level, output_to=None, overwrite_existing=False):
@@ -186,7 +153,7 @@ def generate_points_from_raster(raster, output_to=None, overwrite_existing=False
         out_feature_class=output_to,
         method='NO_THIN',
         kernel_method='MAX'
-    )  # type: Point
+    )
     print_fields(all_points)
 
     return all_points
@@ -221,79 +188,112 @@ def get_highest_points_from_multipoint_features(island_points, spatial_reference
     return fp
 
 
-def extract_region_of_interest(dem, region_of_interest):
-    arcpy.AddMessage("Extracting ")
-    (roi,) = SearchCursor(region_of_interest, ['SHAPE@']).next()
-    rect_extract = ExtractByMask(dem, roi)
-    raster = Raster(rect_extract)
-    return raster
+def create_temp_point_table(spatial_reference):
+    fp = arcpy.CreateFeatureclass_management(
+        'in_memory', 'temp_points', 'POINT', has_z="ENABLED", spatial_reference=spatial_reference
+    )
+
+    arcpy.AddField_management(fp, 'Z', field_type='INTEGER')
+    arcpy.AddField_management(fp, 'FID_island', field_type='LONG')
+    arcpy.AddField_management(fp, 'FID_split', field_type='LONG')
+    arcpy.AddField_management(fp, 'FID_grid', field_type='LONG')
+    arcpy.AddField_management(fp, 'FID_point', field_type='LONG')
+    arcpy.AddField_management(fp, 'observer', field_type='SHORT')
+    return fp
 
 
-def run_func(overwrite_existing, out_workspace, save_loc, save_intermediate, creation_message, func, args, kwargs):
-    save_to = join(out_workspace, save_loc)
-    if (Exists(save_to) or exists(save_to)) and not overwrite_existing:
-        arcpy.AddMessage("Using existing file at {}".format(save_to))
-        return save_to
-    arcpy.AddMessage(creation_message)
-    out_var = func(*args, **kwargs)
-    if save_intermediate:
-        arcpy.AddMessage("Saving {} to {}".format(save_loc, save_to))
-        CopyFeatures_management(out_var, save_to)
-    return out_var
+def reset_tmp(spatial_reference, to_replace=None):
+    if to_replace is not None:
+        arcpy.Delete_management(to_replace)
+    tmp_tbl = create_temp_point_table(spatial_reference)
+    insert_cursor = InsertCursor(tmp_tbl,
+                                 ['SHAPE@', 'Z', 'FID_island', 'FID_split', 'FID_grid', 'FID_point', 'observer'])
+    return tmp_tbl, insert_cursor
 
 
-def get_high_points(all_points, islands_poly, region_of_interest, distance_to_shore_meters, grid_width,
-                    grid_height, spatial_reference=None, save_intermediate=False, out_workspace=None,
-                    overwrite_existing=False):
+def run_multi_viewshed(tmp_table, d, m,
+                       viewshed_folder, point_table_folder, tmp_table_folder, sea_level_raster, spatial_reference,
+                       total_rasters,
+                       overwrite_existing=False):
+    c = d + int(m > 0)
+
+    save_raster_to = join(viewshed_folder, 'viewshed_{:04d}'.format(c))
+    save_observers_to = join(point_table_folder, "tst_points_{:04d}.shp".format(c))
+    save_observer_relations_to = join(tmp_table_folder, 'observer_relations_{:04d}.shp'.format(c))
+    save_dirs = [save_raster_to, save_observers_to, save_observer_relations_to]
+
+    if (not overwrite_existing) and all(exists(path) for path in save_dirs):
+        return reset_tmp(spatial_reference, tmp_table)
+
+    arcpy.CopyFeatures_management(tmp_table, save_observers_to)
+
+    arcpy.AddMessage("doing viewshed {} of {}".format(c, total_rasters))
+    out_raster, _, _ = arcpy.Viewshed2_3d(
+        in_raster=sea_level_raster,
+        in_observer_features=tmp_table,
+        out_raster=save_raster_to,
+        out_agl_raster=None,
+        analysis_type="OBSERVERS",
+        vertical_error="0 Meters",
+        out_observer_region_relationship_table=save_observer_relations_to,
+        refractivity_coefficient="0.13",
+        surface_offset="0 Meters",
+        observer_elevation="Z",
+        observer_offset="2 Meters",
+        inner_radius=None,
+        inner_radius_is_3d="GROUND",
+        outer_radius="300 Kilometers",
+        outer_radius_is_3d="GROUND",
+        horizontal_start_angle="0",
+        horizontal_end_angle="360",
+        vertical_upper_angle="90",
+        vertical_lower_angle="-90",
+        analysis_method="PERIMETER_SIGHTLINES"
+    )
+
+    return reset_tmp(spatial_reference, tmp_table)
+
+
+def get_viewshed_groups(tmp_tbl, insert_cursor, row, i, total_rows,
+                        viewshed_folder, ws, tmp_table_folder, sea_level_raster, spatial_reference, total_rasters,
+                        overwrite_existing):
+    d, m = divmod(i, OBSERVER_GROUP_SIZE)
+    if (i > 0 and m == 0) or (i == (total_rows - 1)):
+        tmp_tbl, insert_cursor = run_multi_viewshed(
+            tmp_tbl, d, m,
+            viewshed_folder, ws, tmp_table_folder, sea_level_raster, spatial_reference, total_rasters,
+            overwrite_existing
+        )
+    insert_cursor.insertRow(row + (i % OBSERVER_GROUP_SIZE,))
+    return tmp_tbl, insert_cursor
+
+
+def run_all_viewsheds(sea_level, ws, viewpoints, dem, spatial_reference=None, overwrite_existing=False):
+    env.overwriteOutput = True
     if spatial_reference is None:
-        spatial_reference = Describe(islands_poly).spatialReference
-    shared = dict(
-        overwrite_existing=overwrite_existing,
-        save_intermediate=save_intermediate,
-        out_workspace=out_workspace
-    )
-    borders = run_func(
-        save_loc='borders.shp',
-        creation_message="Creating inner buffer zone of {}".format(distance_to_shore_meters),
-        func=create_island_inner_buffers,
-        args=(region_of_interest, islands_poly, distance_to_shore_meters),
-        kwargs={},
-        **shared
-    )
+        spatial_reference = Describe(dem).spatialReference
 
-    grid = run_func(
-        save_loc='grid.shp',
-        creation_message="Creating {} x {} grid over buffered area".format(grid_width, grid_height),
-        func=create_grid,
-        args=(borders,),
-        kwargs=dict(grid_width=grid_width, grid_height=grid_height),
-        **shared
-    )
+    dem = reproject(dem)
+    r = Raster(dem)
+    slr = Con(r > sea_level, r, sea_level)
 
-    split_islands = run_func(
-        save_loc='split_islands.shp',
-        creation_message="Splitting islands into grid",
-        func=split_islands_into_grid,
-        args=(borders, grid),
-        kwargs={},
-        **shared
-    )
+    viewshed_folder = join(ws, 'viewsheds')
+    tmp_table_folder = join(ws, 'observer_groups')
+    point_table_folder = join(ws, 'observer_points')
+    for directory in [viewshed_folder, tmp_table_folder, point_table_folder]:
+        if not exists(directory):
+            makedirs(directory)
 
-    island_points = run_func(
-        save_loc='grouped_island_points.shp',
-        creation_message="Grouping points for each island section",
-        func=group_points_onto_islands,
-        args=(all_points, split_islands),
-        kwargs=dict(),
-        **shared
-    )
+    arcpy.AddMessage("getting points")
+    total_rows = int(arcpy.GetCount_management(viewpoints).getOutput(0))
+    arcpy.AddMessage("{} viewpoints".format(total_rows))
+    total_rasters = int(ceil(total_rows / float(OBSERVER_GROUP_SIZE)))
+    arcpy.AddMessage("{} rasters".format(total_rasters))
 
-    viewpoints = run_func(
-        save_loc='gridded_viewpoints.shp',
-        creation_message="Getting highest point for each island section",
-        func=get_highest_points_from_multipoint_features,
-        args=(island_points, spatial_reference),
-        kwargs=dict(),
-        **shared
-    )
-    return viewpoints
+    tmp_tbl, insert_cursor = reset_tmp(spatial_reference)
+    for i, row in enumerate(SearchCursor(viewpoints, ['SHAPE@', 'Z', 'FID_island', 'FID_split', 'FID_grid', 'FID'])):
+        tmp_tbl, insert_cursor = get_viewshed_groups(
+            tmp_tbl, insert_cursor, row, i, total_rows,
+            viewshed_folder, point_table_folder, tmp_table_folder, slr, spatial_reference, total_rasters,
+            overwrite_existing)
+    env.overwriteOutput = overwrite_existing
