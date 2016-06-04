@@ -1,20 +1,63 @@
+from os import mkdir
 from os.path import join, exists
 
 import arcpy
 from arcpy import CreateFeatureclass_management, AddField_management, RasterToPolygon_conversion, \
-    FeatureClassToFeatureClass_conversion, GridIndexFeatures_cartography, Intersect_analysis, RasterToMultipoint_3d, \
-    Describe, CopyFeatures_management
+    GridIndexFeatures_cartography, Intersect_analysis, RasterToMultipoint_3d, \
+    Describe, CopyFeatures_management, Buffer_analysis, AddMessage
 from arcpy import Point
 from arcpy.da import InsertCursor, SearchCursor
-from arcpy.sa import SetNull, Raster, ExtractByMask
+from arcpy.sa import Raster, ExtractByMask, Con
+
+
+def create_dirs(dirs):
+    """
+    :type dirs: str | list[str]
+    """
+    if isinstance(dirs, basestring):
+        dirs = [dirs]
+    for directory in dirs:
+        if not exists(directory):
+            arcpy.AddMessage("Creating directory: {}".format(directory))
+            mkdir(directory)
+
+
+def in_mem(var):
+    """
+    :param var: str
+    :return: str
+    """
+    return join('in_memory', var)
+
+
+def get_output_loc(given, default):
+    return in_mem(default) if given is None else given
+
+
+def get_field_names(shp):
+    """
+    :type shp: str
+    :rtype: list[str]
+    """
+    return [f.name for f in arcpy.ListFields(shp)]
+
+
+def print_fields(shp):
+    AddMessage('{}: {}'.format(shp, map(str, get_field_names(shp))))
 
 
 def create_sea_level_island_polygons(base_raster, sea_level, output_to=None):
-    if output_to is None:
-        output_to = join('in_memory', 'islands')
+    """
 
-    islands = Raster(base_raster) > sea_level  # type: Raster
-    islands = SetNull(islands, islands, "VALUE = 0")
+    :param base_raster:
+    :param sea_level:
+    :param output_to:
+    :return:
+    """
+    output_to = get_output_loc(output_to, 'islands')
+
+    r = Raster(base_raster)
+    islands = Con(r > sea_level, r, None)  # type: Raster
     islands_poly = RasterToPolygon_conversion(
         in_raster=islands,
         out_polygon_features=output_to,
@@ -22,51 +65,72 @@ def create_sea_level_island_polygons(base_raster, sea_level, output_to=None):
     return islands_poly
 
 
-def meters_to_decimal_degrees(meters):
-    return int(meters) * 0.000009
+def create_island_inner_buffers(region_of_interest, islands_poly, distance_to_shore, output_to=None):
+    """
+    :param region_of_interest: A polygon that constrains the area to be looked at
+    :type region_of_interest: str
+    :param islands_poly: The islands feature. This should be a polygon feature class representing land masses
+    :type islands_poly: str
+    :param distance_to_shore: Linear Unit representing the inner buffer to be created from the shoreline
+    :type distance_to_shore: str
+    :return: An inner buffer of the islands features intersected with the region of interest.
+             ['FID', 'Shape', 'FID_island', 'Id', 'gridcode', 'BUFF_DIST', 'ORIG_FID', 'FID_roi', 'Id_1']
+    :rtype: str
+    """
+    output_to = get_output_loc(output_to, 'borders')
 
-
-def create_island_inner_buffers(region_of_interest, islands_poly, distance_to_shore_meters):
-    outers = []
-    to_do = []
-
-    for i, (poly,) in enumerate(SearchCursor(islands_poly, ['SHAPE@'])):
-        if not region_of_interest.disjoint(poly):
-            to_do.append(poly)
-            inner = poly.buffer(-meters_to_decimal_degrees(distance_to_shore_meters))
-            outer = poly.difference(inner)
-            outer = outer.intersect(region_of_interest, 4)
-            outers.append(outer)
-    borders = FeatureClassToFeatureClass_conversion(
-        outers, out_path='in_memory', out_name='borders'
+    borders = Buffer_analysis(
+        in_features=islands_poly,
+        out_feature_class=in_mem('borders_tmp'),
+        buffer_distance_or_field="-{}".format(distance_to_shore),
+        line_side='OUTSIDE_ONLY',
+        dissolve_option='NONE',
+        method='GEODESIC'
     )
+
+    borders = Intersect_analysis([borders, region_of_interest], output_to)
     return borders
 
 
-def create_grid(in_features, grid_x_meters, grid_y_meters, output_to=None):
-    if output_to is None:
-        output_to = join('in_memory', 'grid')
+def create_grid(in_features, grid_width, grid_height, output_to=None):
+    """
+    Create a grid over the island buffers
+
+    :param in_features:
+    :param grid_width:
+    :param grid_height:
+    :param output_to:
+    :return:
+    """
+    output_to = get_output_loc(output_to, 'grid')
 
     grid = GridIndexFeatures_cartography(
         out_feature_class=output_to,
         in_features=in_features,
         intersect_feature='INTERSECTFEATURE',
-        polygon_width=grid_x_meters,
-        polygon_height=grid_y_meters,
+        polygon_width=grid_width,
+        polygon_height=grid_height,
     )
     return grid
 
 
 def split_islands_into_grid(borders, grid, output_to=None):
-    if output_to is None:
-        output_to = join('in_memory', 'split_islands')
-    split_islands = Intersect_analysis([grid, borders], out_feature_class=output_to)
+    """
+    Given the buffer and a grid, get the intersection to create the fabled gridded_islands
+
+    :param borders:
+    :param grid:
+    :param output_to:
+    :return:
+    """
+    output_to = get_output_loc(output_to, 'split_islands')
+    split_islands = Intersect_analysis([borders, grid], out_feature_class=output_to)
+
     return split_islands
 
 
 def group_points_onto_islands(all_points, island_groups, output_to=None):
-    if output_to is None:
-        output_to = join('in_memory', 'grouped_islands_points')
+    output_to = get_output_loc(output_to, 'grouped_islands_points')
     island_points = Intersect_analysis(
         in_features=[all_points, island_groups],
         out_feature_class=output_to,
@@ -89,8 +153,7 @@ def create_high_point_table(spatial_reference):
 
 
 def generate_points_from_raster(raster, output_to=None):
-    if output_to is None:
-        output_to = join('in_memory', 'islands_points')
+    output_to = get_output_loc(output_to, 'islands_points')
 
     all_points = RasterToMultipoint_3d(
         in_raster=raster,
@@ -108,17 +171,17 @@ def get_highest_points_from_multipoint_features(island_points, spatial_reference
     highest = {}
     fp = create_high_point_table(spatial_reference)
     sc = InsertCursor(fp, ['SHAPE@', 'Z', 'FID_island', 'FID_split_', 'FID_grid'])
-    for i, row in enumerate(
+    for i, (view_points, points, split, grid) in enumerate(
         SearchCursor(island_points, ["SHAPE@", 'FID_islands_points', "FID_split_islands", 'FID_grid'])):
 
-        candidate_point = highest.get(row[2], (None,))[0]
-        for p in row[0]:
+        candidate_point = highest.get(split, (None,))[0]
+        for point in view_points:
             if candidate_point is None:
-                candidate_point = p
+                candidate_point = point
             else:
-                if p.Z > candidate_point.Z:
-                    candidate_point = p
-        highest[row[2]] = (candidate_point, candidate_point.Z, row[1], row[2], row[3])
+                if point.Z > candidate_point.Z:
+                    candidate_point = point
+        highest[split] = (candidate_point, candidate_point.Z, points, split, grid)
 
     for row in highest.itervalues():
         sc.insertRow(row)
@@ -147,8 +210,8 @@ def run_func(overwrite_existing, out_workspace, save_loc, save_intermediate, cre
     return out_var
 
 
-def get_high_points(all_points, islands_poly, region_of_interest, distance_to_shore_meters, grid_x_meters,
-                    grid_y_meters, spatial_reference=None, save_intermediate=False, out_workspace=None,
+def get_high_points(all_points, islands_poly, region_of_interest, distance_to_shore_meters, grid_width,
+                    grid_height, spatial_reference=None, save_intermediate=False, out_workspace=None,
                     overwrite_existing=False):
     if spatial_reference is None:
         spatial_reference = Describe(islands_poly).spatialReference
@@ -165,15 +228,17 @@ def get_high_points(all_points, islands_poly, region_of_interest, distance_to_sh
         kwargs={},
         **shared
     )
+    print_fields(borders)
 
     grid = run_func(
         save_loc='grid',
-        creation_message="Creating {} x {} grid over buffered area".format(grid_x_meters, grid_y_meters),
+        creation_message="Creating {} x {} grid over buffered area".format(grid_width, grid_height),
         func=create_grid,
         args=(borders,),
-        kwargs=dict(grid_x_meters=grid_x_meters, grid_y_meters=grid_y_meters),
+        kwargs=dict(grid_width=grid_width, grid_height=grid_height),
         **shared
     )
+    print_fields(grid)
 
     split_islands = run_func(
         save_loc='split_islands',
@@ -183,6 +248,7 @@ def get_high_points(all_points, islands_poly, region_of_interest, distance_to_sh
         kwargs={},
         **shared
     )
+    print_fields(split_islands)
 
     island_points = run_func(
         save_loc='grouped_island_points',
@@ -192,18 +258,14 @@ def get_high_points(all_points, islands_poly, region_of_interest, distance_to_sh
         kwargs=dict(),
         **shared
     )
+    print_fields(island_points)
 
-    viewpoints = run_func(
-        save_loc='gridded_viewpoints',
-        creation_message="Getting highest point for each island section",
-        func=get_highest_points_from_multipoint_features,
-        args=(island_points, spatial_reference),
-        kwargs=dict(),
-        **shared
-    )
-    return viewpoints
-
-
-def get_field_names(shp):
-    fieldnames = [f.name for f in arcpy.ListFields(shp)]
-    return fieldnames
+    # viewpoints = run_func(
+    #     save_loc='gridded_viewpoints',
+    #     creation_message="Getting highest point for each island section",
+    #     func=get_highest_points_from_multipoint_features,
+    #     args=(island_points, spatial_reference),
+    #     kwargs=dict(),
+    #     **shared
+    # )
+    # return viewpoints
