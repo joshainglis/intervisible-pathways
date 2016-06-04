@@ -57,7 +57,7 @@ def create_sea_level_island_polygons(base_raster, sea_level, output_to=None):
     output_to = get_output_loc(output_to, 'islands')
 
     r = Raster(base_raster)
-    islands = Con(r > sea_level, r, None)  # type: Raster
+    islands = Con(r > sea_level, 1, None)  # type: Raster
     islands_poly = RasterToPolygon_conversion(
         in_raster=islands,
         out_polygon_features=output_to,
