@@ -5,8 +5,8 @@ from os.path import join, split, dirname
 
 import arcpy
 from arcpy import AddMessage, Exists, CopyFeatures_management
-from arcpy.sa import ExtractByMask
 from arcpy.da import SearchCursor
+from arcpy.sa import ExtractByMask
 
 OBSERVER_GROUP_SIZE = 32
 

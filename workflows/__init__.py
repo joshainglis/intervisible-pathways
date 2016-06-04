@@ -1,7 +1,8 @@
 from arcpy import Describe
 
 from procedures import create_island_inner_buffers, create_grid, split_islands_into_grid, group_points_onto_islands, \
-    get_highest_points_from_multipoint_features, run_all_viewsheds
+    get_highest_points_from_multipoint_features
+from procedures.viewshed import run_all_viewsheds
 from utils import run_func
 
 
