@@ -1,12 +1,14 @@
 """
 ArcGIS Module to select gridded highest points within a given area of the coast at various sea levels
 """
+from arcgisscripting import ExecuteError
 from os import mkdir
 from os.path import exists, join
 
 import arcpy
 from arcpy import env, CheckOutExtension, GetParameterAsText, Describe, CopyFeatures_management, AddMessage
-from utils import create_sea_level_island_polygons, generate_points_from_raster, get_high_points, create_dirs
+from utils import create_sea_level_island_polygons, generate_points_from_raster, get_high_points, create_dirs, \
+    print_fields, run_func
 
 # Get CLI parameter values
 workspace = GetParameterAsText(0)
@@ -34,11 +36,8 @@ CheckOutExtension("3D")
 AddMessage("Setting up workspace")
 create_dirs(out_workspace)
 
-AddMessage("Extracting spatial reference")
-spatial_reference = Describe(dem).spatialReference
-
 AddMessage("Generating points from raster (can take a long time!)")
-all_points = generate_points_from_raster(dem)
+all_points = generate_points_from_raster(dem, overwrite_existing=overwrite_existing)
 
 for sea_level in range(low_sea_level, high_sea_level + 1, sea_level_steps):
     AddMessage("Sea Level {}".format(sea_level))
@@ -47,14 +46,19 @@ for sea_level in range(low_sea_level, high_sea_level + 1, sea_level_steps):
     if save_intermediate:
         create_dirs(wd)
 
+    kwargs = dict(save_intermediate=save_intermediate, out_workspace=wd, overwrite_existing=overwrite_existing)
+
     AddMessage("Generating Vector of islands at {}m".format(sea_level))
-    islands_poly = create_sea_level_island_polygons(dem, sea_level)
-    if save_intermediate:
+    islands_poly, existed = create_sea_level_island_polygons(dem, sea_level, overwrite_existing=overwrite_existing)
+
+    if save_intermediate and not existed:
         save_to = join(wd, 'islands.shp')
         AddMessage("Saving Vector of islands to {}".format(save_to))
-        CopyFeatures_management(islands_poly, save_to)
+        try:
+            CopyFeatures_management(islands_poly, save_to)
+        except ExecuteError as e:
+            if "ERROR 000725" not in e.message:
+                raise e
 
-    fp = get_high_points(all_points, islands_poly, region_of_interest, distance_to_shore, grid_width,
-                         grid_height, spatial_reference, save_intermediate=save_intermediate,
-                         out_workspace=wd)
-
+    fp = get_high_points(all_points, islands_poly, region_of_interest, distance_to_shore, grid_width, grid_height,
+                         **kwargs)
