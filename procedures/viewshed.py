@@ -9,7 +9,7 @@ from arcpy import env, Describe
 from arcpy.da import InsertCursor, SearchCursor
 from arcpy.sa import Con, BitwiseAnd
 
-from utils import OBSERVER_GROUP_SIZE, reproject
+from utils import OBSERVER_GROUP_SIZE, reproject, in_mem
 
 
 def create_temp_point_table(spatial_reference):
@@ -142,6 +142,63 @@ def extract_viewshed(workspace, viewshed_folder, vs_num):
             print("Problem on {}-{}: {}".format(vs_num, i, e.message))
 
 
-def run_all(viewpoints):
-    for i, row in enumerate(SearchCursor(viewpoints, ['SHAPE@', 'Z', 'FID_island', 'FID_split', 'FID_grid', 'FID'])):
-        d, m = divmod(i, OBSERVER_GROUP_SIZE)
+def get_poly_rasters(viewpoints, workspace, spatial_reference):
+    if arcpy.Exists('viewshed_polys.shp'):
+        fp = arcpy.CopyFeatures_management('viewshed_polys.shp', join('in_memory', 'va_polygons'))
+    else:
+        fp = arcpy.CreateFeatureclass_management(
+            'in_memory', 'va_polygons', 'POLYGON', spatial_reference=spatial_reference
+        )
+
+        arcpy.AddField_management(fp, 'FID_island', field_type='LONG')
+        arcpy.AddField_management(fp, 'FID_split', field_type='LONG')
+        arcpy.AddField_management(fp, 'FID_grid', field_type='LONG')
+        arcpy.AddField_management(fp, 'FID_point', field_type='LONG')
+    # arcpy.AddIndex_management(fp, 'FID_island', 'island_idx')
+    ic = arcpy.da.InsertCursor(fp, ['SHAPE@', 'FID_island', 'FID_split', 'FID_grid', 'FID_point'])
+
+    if int(arcpy.GetCount_management(fp).getOutput(0)) > 0:
+        highest_point = max(p for (p,) in arcpy.da.SearchCursor(fp, ['FID_point']))
+        qry = """{} > {}""".format(arcpy.AddFieldDelimiters(viewpoints, 'FID'), highest_point)
+    else:
+        qry = None
+
+    arcpy.AddMessage('Starting')
+    prev_vs = 0
+    r = None
+    try:
+        for i, (island_id, split_island_id, grid_id, point_id) in enumerate(
+            SearchCursor(viewpoints, ['FID_island', 'FID_split', 'FID_grid', 'FID'], qry)):
+            vs_num, index = divmod(point_id, OBSERVER_GROUP_SIZE)
+            vs_num += 1
+            if vs_num != prev_vs:
+                vs = join(workspace, 'viewsheds', 'viewshed_{:04d}'.format(vs_num))
+                r = Raster(vs)
+
+            arcpy.AddMessage(
+                'Running: vs_num={}, index={}, island_id={}, split_island_id={}, grid_id={}, point_id={}'.format(
+                    vs_num, index, island_id, split_island_id, grid_id, point_id
+                )
+            )
+            val = 1 if index < 31 else -1
+            extracted = Con(BitwiseAnd(r, (val << int(index))), 1, None)
+            vs_poly = arcpy.RasterToPolygon_conversion(
+                in_raster=extracted,
+                out_polygon_features=join('in_memory', 'vs_poly_{}_{}'.format(island_id, i)),
+            )
+            for (poly,) in SearchCursor(vs_poly, ["SHAPE@"]):
+                ic.insertRow((poly, island_id, split_island_id, grid_id, point_id))
+    finally:
+        # Clean up the insert cursor
+        del ic
+        arcpy.AddMessage('Saving')
+        try:
+            if arcpy.Exists('viewshed_polys.shp'):
+                arcpy.Append_management(fp, 'viewshed_polys.shp')
+                arcpy.AddMessage('New data appended to viewshed_polys.shp')
+            else:
+                arcpy.CopyFeatures_management(fp, 'viewshed_polys.shp')
+                arcpy.AddMessage('New data saved to viewshed_polys.shp')
+        except Exception as e:
+            arcpy.AddMessage('Failed to save data: {}'.format(e.message))
+        arcpy.AddMessage('Done!')

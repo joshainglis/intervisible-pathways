@@ -65,3 +65,52 @@ for dirpath, dirnames, filenames in walk:
         i += 1
     print(int(arcpy.GetCount_management(fp).getOutput(0)))
 arcpy.CopyFeatures_management(fp, 'viewshed_polys2')
+
+from os.path import join
+# from collections import defaultdict
+import networkx as nx
+
+d = nx.DiGraph()
+# d = defaultdict(set)
+
+point = arcpy.Point()
+array = arcpy.Array()
+
+featureList = []
+
+network = arcpy.CreateFeatureclass_management(
+    arcpy.env.workspace, "network2.shp", "POLYLINE", spatial_reference=spatial_reference
+)
+arcpy.AddField_management(fp, 'island_A', field_type='LONG')
+arcpy.AddField_management(fp, 'island_B', field_type='LONG')
+arcpy.AddField_management(fp, 'A_sees_B', field_type='LONG')
+
+cursor = arcpy.InsertCursor(network)
+feat = cursor.newRow()
+
+for island, other, area, vs_poly in arcpy.da.SearchCursor("vs_intersect",
+                                                          ["FID_islands", "FID_island", 'Shape_Area', 'SHAPE@']):
+    if island != other:
+        expression = '"FID" = {}'.format(other)
+        (other_shape, (x, y),) = arcpy.da.SearchCursor("islands", ["SHAPE@", "SHAPE@TRUECENTROID"],
+                                                       where_clause=expression).next()
+        intersected = other_shape.intersect(vs_poly)
+        if other in d:
+            d[other]['area'] += float(intersected.area)
+        else:
+            d.add_edge(island, other, {'area': intersected.area})
+        print(island, other)
+
+        for fid in [island, other]:
+            expression = '"FID" = {}'.format(fid)
+            ((x, y),) = arcpy.da.SearchCursor("islands", ["SHAPE@TRUECENTROID"], where_clause=expression).next()
+            point.X = x
+            point.Y = y
+            array.add(point)
+        polyline = arcpy.Polyline(array)
+        array.removeAll()
+        featureList.append(polyline)
+        feat.shape = polyline
+        cursor.insertRow(feat)
+del feat
+del cursor

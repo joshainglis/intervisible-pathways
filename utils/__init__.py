@@ -47,6 +47,10 @@ def print_fields(shp):
     AddMessage('{}: {}'.format(shp, map(str, get_field_names(shp))))
 
 
+def get_spatial_reference(obj):
+    return arcpy.Describe(obj).spatialReference
+
+
 def reproject(sea_level_raster):
     slr_dir, slr_file = split(sea_level_raster)
     gebco_vert = join(slr_dir, "vert_{}".format((slr_file.rsplit('.')[0])[:8]))
