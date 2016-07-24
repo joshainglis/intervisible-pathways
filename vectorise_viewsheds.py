@@ -5,8 +5,6 @@ from os.path import join, exists, expanduser, split
 import arcpy
 from arcpy import env
 
-from utils import get_field_names
-
 arcpy.CheckOutExtension("Spatial")
 
 workspace = join(expanduser('~'), 'Documents', 'Wallacea Viewshed', 'Scratch', 'SL_Analysis', 'sl_-85')
@@ -66,7 +64,6 @@ for dirpath, dirnames, filenames in walk:
     print(int(arcpy.GetCount_management(fp).getOutput(0)))
 arcpy.CopyFeatures_management(fp, 'viewshed_polys2')
 
-from os.path import join
 # from collections import defaultdict
 import networkx as nx
 
@@ -79,38 +76,74 @@ array = arcpy.Array()
 featureList = []
 
 network = arcpy.CreateFeatureclass_management(
-    arcpy.env.workspace, "network2.shp", "POLYLINE", spatial_reference=spatial_reference
+    arcpy.env.workspace, "network3.shp", "POLYLINE", spatial_reference=spatial_reference
 )
-arcpy.AddField_management(fp, 'island_A', field_type='LONG')
-arcpy.AddField_management(fp, 'island_B', field_type='LONG')
-arcpy.AddField_management(fp, 'A_sees_B', field_type='LONG')
+arcpy.AddField_management(network, 'island_A', field_type='LONG')
+arcpy.AddField_management(network, 'island_B', field_type='LONG')
+arcpy.AddField_management(network, 'A_sees_B', field_type='LONG')
 
 cursor = arcpy.InsertCursor(network)
 feat = cursor.newRow()
 
-for island, other, area, vs_poly in arcpy.da.SearchCursor("vs_intersect",
-                                                          ["FID_islands", "FID_island", 'Shape_Area', 'SHAPE@']):
-    if island != other:
-        expression = '"FID" = {}'.format(other)
-        (other_shape, (x, y),) = arcpy.da.SearchCursor("islands", ["SHAPE@", "SHAPE@TRUECENTROID"],
-                                                       where_clause=expression).next()
-        intersected = other_shape.intersect(vs_poly)
-        if other in d:
-            d[other]['area'] += float(intersected.area)
-        else:
-            d.add_edge(island, other, {'area': intersected.area})
-        print(island, other)
 
-        for fid in [island, other]:
-            expression = '"FID" = {}'.format(fid)
-            ((x, y),) = arcpy.da.SearchCursor("islands", ["SHAPE@TRUECENTROID"], where_clause=expression).next()
-            point.X = x
-            point.Y = y
-            array.add(point)
-        polyline = arcpy.Polyline(array)
-        array.removeAll()
-        featureList.append(polyline)
-        feat.shape = polyline
-        cursor.insertRow(feat)
+def get_island_viewsheds():
+    """
+    :rtype: list[(int, int, float)]
+    """
+    return arcpy.da.SearchCursor("vs_intersect", ["FID_islands", "FID_island", 'Shape_Area'])
+
+
+def get_island(island_id):
+    """
+    :type island_id: int
+    :rtype: (arcpy.Polygon, (int, int))
+    """
+    expr = '"FID" = {}'.format(island_id)
+    return arcpy.da.SearchCursor("islands", ["SHAPE@", "SHAPE@TRUECENTROID"], where_clause=expr).next()
+
+
+def get_island_centroid(island_id):
+    """
+    :type island_id: int
+    :rtype: list[(int, int)]
+    """
+    expr = '"FID" = {}'.format(island_id)
+    return arcpy.da.SearchCursor("islands", ["SHAPE@TRUECENTROID"], where_clause=expr).next()
+
+
+for i, (island_a_id, island_b_id, area) in enumerate(get_island_viewsheds()):
+    if i % 10000 == 0:
+        print(i, island_a_id, island_b_id)
+    if island_a_id != island_b_id:
+        if island_a_id in d and island_b_id in d[island_a_id]:
+            d[island_a_id][island_b_id]['area'] += float(area)
+        else:
+            d.add_edge(island_a_id, island_b_id, {'area': float(area)})
+        if 'pos' not in d.node[island_b_id]:
+            ((island_b_x, island_b_y),) = get_island_centroid(island_b_id)
+            d.node[island_b_id]['pos'] = {'x': island_b_x, 'y': island_b_y}
+        if 'pos' not in d.node[island_a_id]:
+            ((island_a_x, island_a_y),) = get_island_centroid(island_a_id)
+            d.node[island_a_id]['pos'] = {'x': island_a_x, 'y': island_a_y}
+
+    print("Writing graph to file")
+    nx.write_gml(d, 'islands.gml')
+
+for (island_a_id, island_b_id, data) in d.edges_iter(data=True):
+    for fid in [island_a_id, island_b_id]:
+        expression = '"FID" = {}'.format(fid)
+        ((island_b_x, island_b_y),) = arcpy.da.SearchCursor("islands", ["SHAPE@TRUECENTROID"],
+                                                            where_clause=expression).next()
+        point.X = island_b_x
+        point.Y = island_b_y
+        array.add(point)
+    polyline = arcpy.Polyline(array)
+    array.removeAll()
+    # featureList.append(polyline)
+    feat.shape = polyline
+    feat.island_A = island_a_id
+    feat.island_B = island_b_id
+    feat.A_sees_B = data['area']
+    cursor.insertRow(feat)
 del feat
 del cursor
