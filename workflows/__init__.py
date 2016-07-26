@@ -6,9 +6,9 @@ from procedures.viewshed import run_all_viewsheds
 from utils import run_func
 
 
-def get_high_points(sea_level, all_points, islands_poly, region_of_interest, distance_to_shore_meters, grid_width,
-                    grid_height, dem, spatial_reference=None, save_intermediate=False, out_workspace=None,
-                    overwrite_existing=False):
+def run_full_analysis(sea_level, all_points, islands_poly, region_of_interest, distance_to_shore_meters, grid_width,
+                      grid_height, dem, spatial_reference=None, save_intermediate=False, out_workspace=None,
+                      overwrite_existing=False):
     if spatial_reference is None:
         spatial_reference = Describe(dem).spatialReference
     shared = dict(

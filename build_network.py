@@ -78,10 +78,11 @@ if __name__ == '__main__':
     for (island_a_id, island_b_id, data) in d.edges_iter(data=True):
         for fid in [island_a_id, island_b_id]:
             expression = '"FID" = {}'.format(fid)
-            ((island_b_x, island_b_y),) = arcpy.da.SearchCursor(join(workspace, "islands.shp"),
-                                                                ["SHAPE@TRUECENTROID"],
-                                                                where_clause=expression
-                                                                ).next()
+            ((island_b_x, island_b_y),) = arcpy.da.SearchCursor(
+                join(workspace, "islands.shp"),
+                ["SHAPE@TRUECENTROID"],
+                where_clause=expression
+            ).next()
             point.X = island_b_x
             point.Y = island_b_y
             array.add(point)

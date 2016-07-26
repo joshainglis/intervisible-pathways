@@ -1,14 +1,10 @@
-from collections import defaultdict
-from os import mkdir, listdir
+from os import mkdir
 from os.path import join, exists, expanduser
 
 import arcpy
 from arcpy import env
-from arcpy.da import InsertCursor, SearchCursor
-from arcpy.sa import Con, Raster, ExtractByAttributes, BitwiseAnd
-from math import ceil
-
-from utils import get_field_names
+from arcpy.da import SearchCursor
+from arcpy.sa import Con, Raster, BitwiseAnd
 
 arcpy.CheckOutExtension("Spatial")
 

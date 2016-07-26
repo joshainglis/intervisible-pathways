@@ -9,7 +9,7 @@ from arcpy import env, Describe
 from arcpy.da import InsertCursor, SearchCursor
 from arcpy.sa import Con, BitwiseAnd
 
-from utils import OBSERVER_GROUP_SIZE, reproject, in_mem
+from utils import OBSERVER_GROUP_SIZE, reproject
 
 
 def create_temp_point_table(spatial_reference):
@@ -30,8 +30,18 @@ def reset_tmp(spatial_reference, to_replace=None):
     if to_replace is not None:
         arcpy.Delete_management(to_replace)
     tmp_tbl = create_temp_point_table(spatial_reference)
-    insert_cursor = InsertCursor(tmp_tbl,
-                                 ['SHAPE@', 'Z', 'FID_island', 'FID_split', 'FID_grid', 'FID_point', 'observer'])
+    insert_cursor = InsertCursor(
+        tmp_tbl,
+        [
+            'SHAPE@',
+            'Z',
+            'FID_island',
+            'FID_split',
+            'FID_grid',
+            'FID_point',
+            'observer'
+        ]
+    )
     return tmp_tbl, insert_cursor
 
 
@@ -142,9 +152,17 @@ def extract_viewshed(workspace, viewshed_folder, vs_num):
             print("Problem on {}-{}: {}".format(vs_num, i, e.message))
 
 
-def get_poly_rasters(viewpoints, workspace, spatial_reference):
-    if arcpy.Exists('viewshed_polys.shp'):
-        fp = arcpy.CopyFeatures_management('viewshed_polys.shp', join('in_memory', 'va_polygons'))
+def enumerate_viewshed_points(viewpoints, qry):
+    """
+    :rtype: list[(int, (int, int, int, int))]
+    """
+    return enumerate(SearchCursor(viewpoints, ['FID_island', 'FID_split', 'FID_grid', 'FID'], qry))
+
+
+def get_poly_rasters(viewpoints, workspace, save_to, spatial_reference):
+    failed = []
+    if arcpy.Exists(save_to):
+        fp = arcpy.CopyFeatures_management(save_to, join('in_memory', 'va_polygons'))
     else:
         fp = arcpy.CreateFeatureclass_management(
             'in_memory', 'va_polygons', 'POLYGON', spatial_reference=spatial_reference
@@ -167,38 +185,41 @@ def get_poly_rasters(viewpoints, workspace, spatial_reference):
     prev_vs = 0
     r = None
     try:
-        for i, (island_id, split_island_id, grid_id, point_id) in enumerate(
-            SearchCursor(viewpoints, ['FID_island', 'FID_split', 'FID_grid', 'FID'], qry)):
-            vs_num, index = divmod(point_id, OBSERVER_GROUP_SIZE)
-            vs_num += 1
-            if vs_num != prev_vs:
-                vs = join(workspace, 'viewsheds', 'viewshed_{:04d}'.format(vs_num))
-                r = Raster(vs)
+        for i, (island_id, split_island_id, grid_id, point_id) in enumerate_viewshed_points(viewpoints, qry):
+            try:
+                vs_num, index = divmod(point_id, OBSERVER_GROUP_SIZE)
+                vs_num += 1
+                if vs_num != prev_vs:
+                    vs = join(workspace, 'viewsheds', 'viewshed_{:04d}'.format(vs_num))
+                    r = Raster(vs)
 
-            arcpy.AddMessage(
-                'Running: vs_num={}, index={}, island_id={}, split_island_id={}, grid_id={}, point_id={}'.format(
-                    vs_num, index, island_id, split_island_id, grid_id, point_id
+                arcpy.AddMessage(
+                    'Running: vs_num={}, index={}, island_id={}, split_island_id={}, grid_id={}, point_id={}'.format(
+                        vs_num, index, island_id, split_island_id, grid_id, point_id
+                    )
                 )
-            )
-            val = 1 if index < 31 else -1
-            extracted = Con(BitwiseAnd(r, (val << int(index))), 1, None)
-            vs_poly = arcpy.RasterToPolygon_conversion(
-                in_raster=extracted,
-                out_polygon_features=join('in_memory', 'vs_poly_{}_{}'.format(island_id, i)),
-            )
-            for (poly,) in SearchCursor(vs_poly, ["SHAPE@"]):
-                ic.insertRow((poly, island_id, split_island_id, grid_id, point_id))
+                val = 1 if index < 31 else -1
+                extracted = Con(BitwiseAnd(r, (val << int(index))), 1, None)
+                vs_poly = arcpy.RasterToPolygon_conversion(
+                    in_raster=extracted,
+                    out_polygon_features=join('in_memory', 'vs_poly_{}_{}'.format(island_id, i)),
+                )
+                for (poly,) in SearchCursor(vs_poly, ["SHAPE@"]):
+                    ic.insertRow((poly, island_id, split_island_id, grid_id, point_id))
+            except Exception as e:
+                failed.append((i, island_id, split_island_id, grid_id, point_id, e.__class__.__name__, e.message))
     finally:
         # Clean up the insert cursor
         del ic
         arcpy.AddMessage('Saving')
         try:
-            if arcpy.Exists('viewshed_polys.shp'):
-                arcpy.Append_management(fp, 'viewshed_polys.shp')
-                arcpy.AddMessage('New data appended to viewshed_polys.shp')
+            if arcpy.Exists(save_to):
+                arcpy.Append_management(fp, save_to)
+                arcpy.AddMessage('New data appended to {}'.format(save_to))
             else:
-                arcpy.CopyFeatures_management(fp, 'viewshed_polys.shp')
-                arcpy.AddMessage('New data saved to viewshed_polys.shp')
+                arcpy.CopyFeatures_management(fp, save_to)
+                arcpy.AddMessage('New data saved to {}'.format(save_to))
         except Exception as e:
             arcpy.AddMessage('Failed to save data: {}'.format(e.message))
+        arcpy.AddMessage('Failed: {}'.format(failed))
         arcpy.AddMessage('Done!')

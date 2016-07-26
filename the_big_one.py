@@ -10,7 +10,7 @@ from arcpy import env, CheckOutExtension, GetParameterAsText, CopyFeatures_manag
 from procedures import create_sea_level_island_polygons
 from procedures import generate_points_from_raster
 from utils import create_dirs
-from workflows import get_high_points
+from workflows import run_full_analysis
 
 # Get CLI parameter values
 workspace = GetParameterAsText(0)
@@ -62,6 +62,6 @@ for sea_level in range(low_sea_level, high_sea_level + 1, sea_level_steps):
             if "ERROR 000725" not in e.message:
                 raise e
 
-    fp = get_high_points(sea_level, all_points, islands_poly, region_of_interest, distance_to_shore, grid_width,
-                         grid_height,
-                         dem, **kwargs)
+    fp = run_full_analysis(sea_level, all_points, islands_poly, region_of_interest, distance_to_shore, grid_width,
+                           grid_height,
+                           dem, **kwargs)
