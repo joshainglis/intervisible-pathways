@@ -1,11 +1,10 @@
-from arcgisscripting import Raster
 from genericpath import exists
 from math import ceil
 from os import makedirs
 from os.path import join
 
 import arcpy
-from arcpy import env, Describe
+from arcpy import env, Describe, Raster
 from arcpy.da import InsertCursor, SearchCursor
 from arcpy.sa import Con, BitwiseAnd
 
@@ -152,11 +151,24 @@ def extract_viewshed(workspace, viewshed_folder, vs_num):
             print("Problem on {}-{}: {}".format(vs_num, i, e.message))
 
 
-def enumerate_viewshed_points(viewpoints, qry):
+def get_search_cursor(viewpoints, qry):
     """
-    :rtype: list[(int, (int, int, int, int))]
+    :rtype: (list[(int, (int, int, int, int))], SearchCursor)
     """
-    return enumerate(SearchCursor(viewpoints, ['FID_island', 'FID_split', 'FID_grid', 'FID'], qry))
+    return SearchCursor(viewpoints, ['FID_island', 'FID_split', 'FID_grid', 'OID@'], qry)
+
+
+def save_table(fp, save_to):
+    arcpy.AddMessage('Saving')
+    try:
+        if arcpy.Exists(save_to):
+            arcpy.Append_management(fp, save_to)
+            arcpy.AddMessage('New data appended to {}'.format(save_to))
+        else:
+            arcpy.CopyFeatures_management(fp, save_to)
+            arcpy.AddMessage('New data saved to {}'.format(save_to))
+    except Exception as e:
+        arcpy.AddMessage('Failed to save data: {}'.format(e.message))
 
 
 def get_poly_rasters(viewpoints, workspace, save_to, spatial_reference):
@@ -184,13 +196,21 @@ def get_poly_rasters(viewpoints, workspace, save_to, spatial_reference):
     arcpy.AddMessage('Starting')
     prev_vs = 0
     r = None
+    sc = get_search_cursor(viewpoints, qry)
     try:
-        for i, (island_id, split_island_id, grid_id, point_id) in enumerate_viewshed_points(viewpoints, qry):
+        for i, (island_id, split_island_id, grid_id, point_id) in enumerate(sc):
+            if i % 100 == 0:
+                save_table(fp, save_to)
             try:
                 vs_num, index = divmod(point_id, OBSERVER_GROUP_SIZE)
-                vs_num += 1
+                vs_num += 1  # Viewsheds are 1 indexed
                 if vs_num != prev_vs:
-                    vs = join(workspace, 'viewsheds', 'viewshed_{:04d}'.format(vs_num))
+                    prev_vs = vs_num
+                    vs = 'viewshed_{:04d}'.format(vs_num)
+                    if not arcpy.Exists(vs):
+                        vs_disk = join(workspace, 'viewsheds', 'viewshed_{:04d}'.format(vs_num))
+                        arcpy.CopyRaster_management(vs_disk, vs)
+                    print(vs)
                     r = Raster(vs)
 
                 arcpy.AddMessage(
@@ -200,17 +220,23 @@ def get_poly_rasters(viewpoints, workspace, save_to, spatial_reference):
                 )
                 val = 1 if index < 31 else -1
                 extracted = Con(BitwiseAnd(r, (val << int(index))), 1, None)
+
                 vs_poly = arcpy.RasterToPolygon_conversion(
                     in_raster=extracted,
                     out_polygon_features=join('in_memory', 'vs_poly_{}_{}'.format(island_id, i)),
                 )
                 for (poly,) in SearchCursor(vs_poly, ["SHAPE@"]):
                     ic.insertRow((poly, island_id, split_island_id, grid_id, point_id))
+
+                arcpy.Delete_management(extracted)
+                arcpy.Delete_management(vs_poly)
             except Exception as e:
+                arcpy.AddError('Failed! vs_num={}, point_id=point_id={}. {}'.format(vs_num, point_id, e.message))
                 failed.append((i, island_id, split_island_id, grid_id, point_id, e.__class__.__name__, e.message))
     finally:
-        # Clean up the insert cursor
+        # Clean up the cursors
         del ic
+        del sc
         arcpy.AddMessage('Saving')
         try:
             if arcpy.Exists(save_to):
