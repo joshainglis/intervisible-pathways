@@ -3,10 +3,9 @@ from arcgisscripting import Raster
 import arcpy
 from arcpy import Exists, Buffer_analysis, Intersect_analysis, GridIndexFeatures_cartography, \
     RasterToPolygon_conversion, RasterToMultipoint_3d, CreateFeatureclass_management, AddField_management
-from arcpy.da import InsertCursor, SearchCursor
 from arcpy.sa import Con
 
-from utils import get_output_loc, print_fields, in_mem
+from utils import get_output_loc, print_fields, in_mem, tmp_name, get_insert_cursor, get_search_cursor, get_field_names
 
 
 def create_sea_level_island_polygons(base_raster, sea_level, output_to=None, overwrite_existing=False):
@@ -107,6 +106,13 @@ def split_islands_into_grid(borders, grid, output_to=None):
 
 
 def group_points_onto_islands(all_points, island_groups, output_to=None):
+    """
+
+    :type all_points: arcpy.FeatureSet
+    :type island_groups: arcpy.FeatureSet
+    :type output_to: str
+    :rtype: arcpy.FeatureSet
+    """
     output_to = get_output_loc(output_to, 'grouped_islands_points')
     island_points = Intersect_analysis(
         in_features=[all_points, island_groups],
@@ -120,8 +126,12 @@ def group_points_onto_islands(all_points, island_groups, output_to=None):
 
 
 def create_high_point_table(spatial_reference):
+    """
+    :type spatial_reference: arcpy.SpatialReference
+    :rtype: arcpy.FeatureSet
+    """
     fp = CreateFeatureclass_management(
-        'in_memory', 'final_points', 'POINT', has_z="ENABLED", spatial_reference=spatial_reference
+        'in_memory', tmp_name(), 'POINT', has_z="ENABLED", spatial_reference=spatial_reference
     )
 
     AddField_management(fp, 'Z', field_type='INTEGER')
@@ -158,27 +168,46 @@ def generate_points_from_raster(raster, output_to=None, overwrite_existing=False
 def get_highest_points_from_multipoint_features(island_points, spatial_reference):
     """
 
-    :param island_points: []
-    :param spatial_reference:
-    :return:
+    :type island_points: arcpy.FeatureSet
+    :type spatial_reference: arcpy.SpatialReference
+    :rtype: arcpy.FeatureSet
     """
     arcpy.AddMessage("island_points {}".format([x.name for x in arcpy.ListFields(island_points)]))
+    # x = [
+    #     u'OID',
+    #     u'Shape',
+    #     u'FID_islands_points',
+    #     u'PointCount',
+    #     u'FID_split_islands',
+    #     u'FID_borders',
+    #     u'FID_borders_tmp',
+    #     u'Id',
+    #     u'gridcode',
+    #     u'BUFF_DIST',
+    #     u'ORIG_FID',
+    #     u'FID_roi',
+    #     u'Id_1',
+    #     u'FID_grid',
+    #     u'PageName',
+    #     u'PageNumber'
+    # ]
 
     highest = {}
     fp = create_high_point_table(spatial_reference)
-    sc = InsertCursor(fp, ['SHAPE@', 'Z', 'FID_island', 'FID_split', 'FID_grid'])
-    for i, (view_points, island, split, grid) in enumerate(
-        SearchCursor(island_points, ["SHAPE@", 'Id', "FID_split_", 'PageNumber'])):
+    fid_split = [x for x in get_field_names(island_points) if x.startswith('FID_split')][0]
 
-        candidate_point = highest.get(split, (None,))[0]
-        for point in view_points:
-            if candidate_point is None:
-                candidate_point = point
-            else:
-                if point.Z > candidate_point.Z:
+    with get_insert_cursor(fp, ['SHAPE@', 'Z', 'FID_island', 'FID_split', 'FID_grid']) as insert_cursor, \
+        get_search_cursor(island_points, ["SHAPE@", 'OID@', fid_split, 'FID_grid']) as search_cursor:
+        for i, (view_points, island, split, grid) in enumerate(search_cursor):
+            candidate_point = highest.get(split, (None,))[0]
+            for point in view_points:
+                if candidate_point is None:
                     candidate_point = point
-        highest[split] = (candidate_point, candidate_point.Z, island - 1, split - 1, grid - 1)
+                else:
+                    if point.Z > candidate_point.Z:
+                        candidate_point = point
+            highest[split] = (candidate_point, candidate_point.Z, island, split, grid)
 
-    for row in highest.itervalues():
-        sc.insertRow(row)
+        for row in highest.itervalues():
+            insert_cursor.insertRow(row)
     return fp

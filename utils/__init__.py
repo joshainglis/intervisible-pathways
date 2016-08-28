@@ -1,7 +1,9 @@
 from arcgisscripting import Raster
+from contextlib import contextmanager
 from genericpath import exists
 from os import mkdir, makedirs
 from os.path import join, split, dirname
+from uuid import uuid4
 
 import arcpy
 from arcpy import AddMessage, Exists, CopyFeatures_management
@@ -9,6 +11,41 @@ from arcpy.da import SearchCursor
 from arcpy.sa import ExtractByMask
 
 OBSERVER_GROUP_SIZE = 32
+
+
+@contextmanager
+def cleanup(object_type, *args, **kwargs):
+    obj = object_type(*args, **kwargs)
+    yield obj
+    del obj
+
+
+@contextmanager
+def get_search_cursor(in_table, field_names, where_clause=None, spatial_reference=None, explode_to_points=None,
+                      sql_clause=(None, None)):
+    """
+    :type in_table: str | arcpy.FeatureSet
+    :type field_names: list[str]
+    :type where_clause: str
+    :type spatial_reference: arcpy.SpatialReference
+    :type explode_to_points: bool
+    :type sql_clause: (str, str)
+    :rtype: collections.Iterable
+    """
+    with cleanup(arcpy.da.SearchCursor, in_table, field_names, where_clause, spatial_reference, explode_to_points,
+                 sql_clause) as cursor:
+        yield cursor
+
+
+@contextmanager
+def get_insert_cursor(in_table, field_names):
+    """
+    :type in_table: str | arcpy.FeatureSet
+    :type field_names: list[str]
+    :rtype: arcpy.da.InsertCursor
+    """
+    with cleanup(arcpy.da.InsertCursor, in_table, field_names) as cursor:
+        yield cursor
 
 
 def create_dirs(dirs):
@@ -21,6 +58,10 @@ def create_dirs(dirs):
         if not exists(directory):
             arcpy.AddMessage("Creating directory: {}".format(directory))
             mkdir(directory)
+
+
+def tmp_name():
+    return 'tmp{}'.format(uuid4().hex)
 
 
 def in_mem(var):
@@ -37,7 +78,7 @@ def get_output_loc(given, default):
 
 def get_field_names(shp):
     """
-    :type shp: str
+    :type shp: str | arcpy.FeatureSet
     :rtype: list[str]
     """
     return [f.name for f in arcpy.ListFields(shp)]

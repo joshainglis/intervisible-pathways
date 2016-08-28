@@ -124,7 +124,7 @@ def run_all_viewsheds(sea_level, ws, viewpoints, dem, spatial_reference=None, ov
     arcpy.AddMessage("{} rasters".format(total_rasters))
 
     tmp_tbl, insert_cursor = reset_tmp(spatial_reference)
-    for i, row in enumerate(SearchCursor(viewpoints, ['SHAPE@', 'Z', 'FID_island', 'FID_split', 'FID_grid', 'FID'])):
+    for i, row in enumerate(SearchCursor(viewpoints, ['SHAPE@', 'Z', 'FID_island', 'FID_split', 'FID_grid', 'OID@'])):
         tmp_tbl, insert_cursor = get_viewshed_groups(
             tmp_tbl, insert_cursor, row, i, total_rows,
             viewshed_folder, point_table_folder, tmp_table_folder, slr, spatial_reference, total_rasters,

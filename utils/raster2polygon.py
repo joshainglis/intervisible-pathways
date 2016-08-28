@@ -64,7 +64,7 @@ if __name__ == '__main__':
         help="Value to mask")
     args = parser.parse_args()
 
-    for i in xrange(1, 134):
+    for i in xrange(1, 202):
         f = 'viewshed_{:04d}'.format(i)
         infile = join(args.input, f)
         outfolder = join(args.output, f)

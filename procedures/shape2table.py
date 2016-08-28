@@ -54,7 +54,9 @@ def poly_to_table(viewpoints, save_to, spatial_reference):
     try:
         for i, (island_id, split_island_id, grid_id, point_id) in enumerate(sc):
             if i % 100 == 0:
-                save_table(fp, save_to)
+                arcpy.AddMessage("Viewpoint: {}".format(i))
+                if i % 5000 == 0:
+                    save_table(fp, save_to)
             try:
                 vs_num, index = divmod(point_id, OBSERVER_GROUP_SIZE)
                 vs_num += 1  # Viewsheds are 1 indexed
