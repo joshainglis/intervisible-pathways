@@ -8,20 +8,20 @@ from arcpy import env, Describe, Raster
 from arcpy.da import InsertCursor, SearchCursor
 from arcpy.sa import Con, BitwiseAnd
 
-from utils import OBSERVER_GROUP_SIZE, reproject
-
+from utils import OBSERVER_GROUP_SIZE, reproject, tmp_name, get_search_cursor
+from config import TableNames as T, SaveLocations as S
 
 def create_temp_point_table(spatial_reference):
     fp = arcpy.CreateFeatureclass_management(
-        'in_memory', 'temp_points', 'POINT', has_z="ENABLED", spatial_reference=spatial_reference
+        T.IN_MEMORY, tmp_name(), 'POINT', has_z="ENABLED", spatial_reference=spatial_reference
     )
 
-    arcpy.AddField_management(fp, 'Z', field_type='INTEGER')
-    arcpy.AddField_management(fp, 'FID_island', field_type='LONG')
-    arcpy.AddField_management(fp, 'FID_split', field_type='LONG')
-    arcpy.AddField_management(fp, 'FID_grid', field_type='LONG')
-    arcpy.AddField_management(fp, 'FID_point', field_type='LONG')
-    arcpy.AddField_management(fp, 'observer', field_type='SHORT')
+    arcpy.AddField_management(fp, T.Z, field_type='INTEGER')
+    arcpy.AddField_management(fp, T.ISLAND_ID, field_type='LONG')
+    arcpy.AddField_management(fp, T.SPLIT_ISLAND_ID, field_type='LONG')
+    arcpy.AddField_management(fp, T.ISLAND_GRID_ID, field_type='LONG')
+    arcpy.AddField_management(fp, T.VIEWPOINT_ID, field_type='LONG')
+    arcpy.AddField_management(fp, T.OBSERVER, field_type='SHORT')
     return fp
 
 
@@ -32,13 +32,13 @@ def reset_tmp(spatial_reference, to_replace=None):
     insert_cursor = InsertCursor(
         tmp_tbl,
         [
-            'SHAPE@',
-            'Z',
-            'FID_island',
-            'FID_split',
-            'FID_grid',
-            'FID_point',
-            'observer'
+            T.SHAPE,
+            T.Z,
+            T.ISLAND_ID,
+            T.SPLIT_ISLAND_ID,
+            T.ISLAND_GRID_ID,
+            T.VIEWPOINT_ID,
+            T.OBSERVER
         ]
     )
     return tmp_tbl, insert_cursor
@@ -110,9 +110,9 @@ def run_all_viewsheds(sea_level, ws, viewpoints, dem, spatial_reference=None, ov
     r = Raster(dem)
     slr = Con(r > sea_level, r, sea_level)
 
-    viewshed_folder = join(ws, 'viewsheds')
-    tmp_table_folder = join(ws, 'observer_groups')
-    point_table_folder = join(ws, 'observer_points')
+    viewshed_folder = join(ws, S.FOLDER_VIEWSHEDS)
+    tmp_table_folder = join(ws, S.FOLDER_TMP_OBSERVERS)
+    point_table_folder = join(ws, S.FOLDER_OBSERVER_POINTS)
     for directory in [viewshed_folder, tmp_table_folder, point_table_folder]:
         if not exists(directory):
             makedirs(directory)
@@ -124,11 +124,12 @@ def run_all_viewsheds(sea_level, ws, viewpoints, dem, spatial_reference=None, ov
     arcpy.AddMessage("{} rasters".format(total_rasters))
 
     tmp_tbl, insert_cursor = reset_tmp(spatial_reference)
-    for i, row in enumerate(SearchCursor(viewpoints, ['SHAPE@', 'Z', 'FID_island', 'FID_split', 'FID_grid', 'OID@'])):
-        tmp_tbl, insert_cursor = get_viewshed_groups(
-            tmp_tbl, insert_cursor, row, i, total_rows,
-            viewshed_folder, point_table_folder, tmp_table_folder, slr, spatial_reference, total_rasters,
-            overwrite_existing)
+    with get_search_cursor(viewpoints, [T.SHAPE, T.Z, T.ISLAND_ID, T.SPLIT_ISLAND_ID, T.ISLAND_GRID_ID, T.ID]) as vp_sc:
+        for i, row in enumerate(vp_sc):
+            tmp_tbl, insert_cursor = get_viewshed_groups(
+                tmp_tbl, insert_cursor, row, i, total_rows,
+                viewshed_folder, point_table_folder, tmp_table_folder, slr, spatial_reference, total_rasters,
+                overwrite_existing)
     env.overwriteOutput = overwrite_existing
 
 
@@ -151,7 +152,7 @@ def extract_viewshed(workspace, viewshed_folder, vs_num):
             print("Problem on {}-{}: {}".format(vs_num, i, e.message))
 
 
-def get_search_cursor(viewpoints, qry):
+def get_viewpoint_search_cursor(viewpoints, qry):
     """
     :rtype: (list[(int, (int, int, int, int))], SearchCursor)
     """
@@ -196,7 +197,7 @@ def get_poly_rasters(viewpoints, workspace, save_to, spatial_reference):
     arcpy.AddMessage('Starting')
     prev_vs = 0
     r = None
-    sc = get_search_cursor(viewpoints, qry)
+    sc = get_viewpoint_search_cursor(viewpoints, qry)
     try:
         for i, (island_id, split_island_id, grid_id, point_id) in enumerate(sc):
             if i % 100 == 0:

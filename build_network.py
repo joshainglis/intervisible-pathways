@@ -6,6 +6,7 @@ import click
 import networkx as nx
 
 from utils import get_search_cursor, cleanup, get_insert_cursor
+from config import TableNames as T, SaveLocations as S
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -17,7 +18,7 @@ def get_island_viewsheds(viewsheds_feature):
     :type viewsheds_feature: str
     :rtype: collections.Iterable[(int, int, float)]
     """
-    with get_search_cursor(viewsheds_feature, ["FID_island", "FID_islands", 'Shape_Area']) as sc:
+    with get_search_cursor(viewsheds_feature, [T.ISLAND_ID, T.INTERSECTED_ISLAND_ID, T.SHAPE_AREA]) as sc:
         yield sc
 
 
@@ -28,8 +29,8 @@ def get_island(islands_feature, island_id, features=None):
     :rtype: (arcpy.Polygon, (int, int))
     """
     if features is None:
-        features = ["SHAPE@", "SHAPE@TRUECENTROID"]
-    expr = '{} = {}'.format(arcpy.AddFieldDelimiters(islands_feature, "FID"), island_id)
+        features = [T.SHAPE, T.CENTROID]
+    expr = '{} = {}'.format(arcpy.AddFieldDelimiters(islands_feature, T.FID), island_id)
     with get_search_cursor(islands_feature, features, where_clause=expr) as islands_sc:
         return islands_sc.next()
 
@@ -40,7 +41,7 @@ def get_island_centroid(islands_feature, island_id):
     :type island_id: int
     :rtype: collections.Iterable[(int, int)]
     """
-    return get_island(islands_feature, island_id, ["SHAPE@TRUECENTROID"])
+    return get_island(islands_feature, island_id, [T.CENTROID])
 
 
 def get_viewshed_centroid(viewsheds_feature, island_a_id, island_b_id):
@@ -51,11 +52,12 @@ def get_viewshed_centroid(viewsheds_feature, island_a_id, island_b_id):
     :rtype: collections.Iterable[(int, int)]
     """
     expr = '{} = {} AND {} = {}'.format(
-        arcpy.AddFieldDelimiters(viewsheds_feature, "FID_island"), island_a_id,
-        arcpy.AddFieldDelimiters(viewsheds_feature, "FID_islands"), island_b_id
+        arcpy.AddFieldDelimiters(viewsheds_feature, T.ISLAND_ID), island_a_id,
+        arcpy.AddFieldDelimiters(viewsheds_feature, T.INTERSECTED_ISLAND_ID), island_b_id
     )
     logger.debug(expr)
-    return arcpy.da.SearchCursor(viewsheds_feature, ["SHAPE@TRUECENTROID"], where_clause=expr).next()
+    with get_search_cursor(viewsheds_feature, [T.CENTROID], where_clause=expr) as sc:
+        return sc.next()
 
 
 def build_network(viewsheds_feature, islands_feature):
@@ -70,7 +72,7 @@ def build_network(viewsheds_feature, islands_feature):
     with get_island_viewsheds(viewsheds_feature) as search_cursor:
         for i, (island_a_id, island_b_id, area) in enumerate(search_cursor):
             if i % 100000 == 0:
-                print(i, island_a_id, island_b_id)
+                logger.debug("Row: %d A: %d B: %d", i, island_a_id, island_b_id)
             if island_a_id != island_b_id:
                 if island_a_id in d and island_b_id in d[island_a_id]:
                     d[island_a_id][island_b_id]['area'] += float(area)
@@ -104,9 +106,9 @@ def create_network_feature(workspace, output_name, islands_feature):
     network = arcpy.CreateFeatureclass_management(
         workspace, output_name, "POLYLINE", spatial_reference=spatial_reference
     )
-    arcpy.AddField_management(network, 'island_A', field_type='LONG')
-    arcpy.AddField_management(network, 'island_B', field_type='LONG')
-    arcpy.AddField_management(network, 'A_sees_B', field_type='DOUBLE')
+    arcpy.AddField_management(network, T.A, field_type='LONG')
+    arcpy.AddField_management(network, T.B, field_type='LONG')
+    arcpy.AddField_management(network, T.A2B, field_type='DOUBLE')
     return network
 
 
@@ -123,7 +125,7 @@ def visualise_network(graph, workspace, output_name, islands_feature):
 
     network = create_network_feature(workspace, output_name, islands_feature)
 
-    with get_insert_cursor(network, ['SHAPE@', 'island_A', 'island_B', 'A_sees_B']) as cursor:
+    with get_insert_cursor(network, [T.SHAPE, T.A, T.B, T.A2B]) as cursor:
         for (island_a_id, island_b_id, data) in graph.edges_iter(data=True):
             for fid in ['a', 'b']:
                 point.X = data[fid][0]

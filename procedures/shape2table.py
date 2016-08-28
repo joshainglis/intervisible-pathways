@@ -1,16 +1,9 @@
 from os.path import join
 
 import arcpy
-from arcpy.da import SearchCursor
 
-from utils import OBSERVER_GROUP_SIZE
-
-
-def get_search_cursor(viewpoints, qry):
-    """
-    :rtype: (list[(int, (int, int, int, int))], SearchCursor)
-    """
-    return SearchCursor(viewpoints, ['FID_island', 'FID_split', 'FID_grid', 'OID@'], qry)
+from utils import OBSERVER_GROUP_SIZE, get_search_cursor as gsc, get_insert_cursor as gic, tmp_name
+from config import TableNames as T, SaveLocations as S
 
 
 def save_table(fp, save_to):
@@ -26,63 +19,74 @@ def save_table(fp, save_to):
         arcpy.AddMessage('Failed to save data: {}'.format(e.message))
 
 
-def poly_to_table(viewpoints, save_to, spatial_reference):
-    failed = []
+def get_or_create_table(save_to, spatial_reference):
     if arcpy.Exists(save_to):
-        fp = arcpy.CopyFeatures_management(save_to, join('in_memory', 'va_polygons'))
+        fp = arcpy.CopyFeatures_management(save_to, join(T.IN_MEMORY, tmp_name()))
     else:
         fp = arcpy.CreateFeatureclass_management(
-            'in_memory', 'va_polygons', 'POLYGON', spatial_reference=spatial_reference
+            T.IN_MEMORY, tmp_name(), 'POLYGON', spatial_reference=spatial_reference
         )
 
-        arcpy.AddField_management(fp, 'FID_island', field_type='LONG')
-        arcpy.AddField_management(fp, 'FID_split', field_type='LONG')
-        arcpy.AddField_management(fp, 'FID_grid', field_type='LONG')
-        arcpy.AddField_management(fp, 'FID_point', field_type='LONG')
-    # arcpy.AddIndex_management(fp, 'FID_island', 'island_idx')
-    ic = arcpy.da.InsertCursor(fp, ['SHAPE@', 'FID_island', 'FID_split', 'FID_grid', 'FID_point'])
+        arcpy.AddField_management(fp, T.ISLAND_ID, field_type='LONG')
+        arcpy.AddField_management(fp, T.SPLIT_ISLAND_ID, field_type='LONG')
+        arcpy.AddField_management(fp, T.ISLAND_GRID_ID, field_type='LONG')
+        arcpy.AddField_management(fp, T.VIEWPOINT_ID, field_type='LONG')
+    return fp
 
+
+def generate_last_completed_query(fp, viewpoints):
     if int(arcpy.GetCount_management(fp).getOutput(0)) > 0:
-        highest_point = max(p for (p,) in arcpy.da.SearchCursor(fp, ['FID_point']))
-        qry = """{} > {}""".format(arcpy.AddFieldDelimiters(viewpoints, 'FID'), highest_point)
+        highest_point = max(p for (p,) in arcpy.da.SearchCursor(fp, [T.VIEWPOINT_ID]))
+        qry = """{} > {}""".format(arcpy.AddFieldDelimiters(viewpoints, T.FID), highest_point)
     else:
         qry = None
+    return qry
+
+
+def log_and_save(fp, save_to, i, log_every, save_every):
+    if log_every and i % log_every == 0:
+        arcpy.AddMessage("Viewpoint: {}".format(i))
+        if save_every and i % save_every == 0:
+            save_table(fp, save_to)
+
+
+def clean_up(fp, save_to, failed):
+    arcpy.AddMessage('Saving')
+    try:
+        if arcpy.Exists(save_to):
+            arcpy.Append_management(fp, save_to)
+            arcpy.AddMessage('New data appended to {}'.format(save_to))
+        else:
+            arcpy.CopyFeatures_management(fp, save_to)
+            arcpy.AddMessage('New data saved to {}'.format(save_to))
+    except Exception as e:
+        arcpy.AddMessage('Failed to save data: {}'.format(e.message))
+    arcpy.AddMessage('Failed: {}'.format(failed))
+    arcpy.AddMessage('Done!')
+
+
+def poly_to_table(viewpoints, save_to, spatial_reference, log_every=100, save_every=5000,
+                  observer_group_size=OBSERVER_GROUP_SIZE):
+    failed = []
+    fp = get_or_create_table(save_to, spatial_reference)
+    qry = generate_last_completed_query(fp, viewpoints)
 
     arcpy.AddMessage('Starting')
-    prev_vs = 0
-    sc = get_search_cursor(viewpoints, qry)
-    try:
-        for i, (island_id, split_island_id, grid_id, point_id) in enumerate(sc):
-            if i % 100 == 0:
-                arcpy.AddMessage("Viewpoint: {}".format(i))
-                if i % 5000 == 0:
-                    save_table(fp, save_to)
-            try:
-                vs_num, index = divmod(point_id, OBSERVER_GROUP_SIZE)
-                vs_num += 1  # Viewsheds are 1 indexed
-                # if vs_num != prev_vs:
-                #     prev_vs = vs_num
-                vs = r'viewshed_{0:04d}\viewshed_{0:04d}_{1:04d}.shp'.format(vs_num, index)
-
-                for (poly,) in SearchCursor(vs, ["SHAPE@"]):
-                    ic.insertRow((poly, island_id, split_island_id, grid_id, point_id))
-
-            except Exception as e:
-                arcpy.AddError('Failed! vs_num={}, point_id=point_id={}. {}'.format(vs_num, point_id, e.message))
-                failed.append((i, island_id, split_island_id, grid_id, point_id, e.__class__.__name__, e.message))
-    finally:
-        # Clean up the cursors
-        del ic
-        del sc
-        arcpy.AddMessage('Saving')
+    insert_table_cols = [T.SHAPE, T.ISLAND_ID, T.SPLIT_ISLAND_ID, T.ISLAND_GRID_ID, T.VIEWPOINT_ID]
+    search_table_cols = [T.ISLAND_ID, T.SPLIT_ISLAND_ID, T.ISLAND_GRID_ID, T.ID]
+    with gic(fp, insert_table_cols) as ic, gsc(viewpoints, search_table_cols, qry) as sc:
         try:
-            if arcpy.Exists(save_to):
-                arcpy.Append_management(fp, save_to)
-                arcpy.AddMessage('New data appended to {}'.format(save_to))
-            else:
-                arcpy.CopyFeatures_management(fp, save_to)
-                arcpy.AddMessage('New data saved to {}'.format(save_to))
-        except Exception as e:
-            arcpy.AddMessage('Failed to save data: {}'.format(e.message))
-        arcpy.AddMessage('Failed: {}'.format(failed))
-        arcpy.AddMessage('Done!')
+            for i, (island_id, split_island_id, grid_id, point_id) in enumerate(sc):
+                log_and_save(fp, save_to, i, log_every, save_every)
+                vs_num, index = divmod(point_id, observer_group_size)
+                vs_num += 1  # Viewsheds are 1 indexed
+                vs = S.individual_viewshed_polygon_save_location(vs_num, index)
+                try:
+                    with gsc(vs, [T.SHAPE]) as vs_sc:
+                        for (poly,) in vs_sc:
+                            ic.insertRow((poly, island_id, split_island_id, grid_id, point_id))
+                except Exception as e:
+                    arcpy.AddError('Failed! vs_num={}, point_id=point_id={}. {}'.format(vs_num, point_id, e.message))
+                    failed.append((i, island_id, split_island_id, grid_id, point_id, e.__class__.__name__, e.message))
+        finally:
+            clean_up(fp, save_to, failed)

@@ -5,6 +5,8 @@ from os import mkdir, makedirs
 from os.path import join, split, dirname
 from uuid import uuid4
 
+from config import TableNames as T
+
 import arcpy
 from arcpy import AddMessage, Exists, CopyFeatures_management
 from arcpy.da import SearchCursor
@@ -69,7 +71,7 @@ def in_mem(var):
     :param var: str
     :return: str
     """
-    return join('in_memory', var)
+    return join(T.IN_MEMORY, var)
 
 
 def get_output_loc(given, default):
@@ -114,7 +116,8 @@ def reproject(sea_level_raster):
 
 def extract_region_of_interest(dem, region_of_interest):
     arcpy.AddMessage("Extracting ")
-    (roi,) = SearchCursor(region_of_interest, ['SHAPE@']).next()
+    with get_search_cursor(region_of_interest, [T.SHAPE]) as sc:
+        (roi,) = sc.next()
     rect_extract = ExtractByMask(dem, roi)
     raster = Raster(rect_extract)
     return raster
