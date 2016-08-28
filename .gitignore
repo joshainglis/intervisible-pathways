@@ -152,7 +152,7 @@ fabric.properties
 .idea/
 Stretched.rft.xml
 islands.gml
-procedures/__init__.pyc
-procedures/viewshed.pyc
-utils/__init__.pyc
+macro_viewshed_analysis/procedures/__init__.pyc
+macro_viewshed_analysis/procedures/viewshed.pyc
+macro_viewshed_analysis/utils/__init__.pyc
 viewshed.pyc

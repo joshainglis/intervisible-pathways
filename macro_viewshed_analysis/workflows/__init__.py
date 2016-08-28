@@ -1,9 +1,10 @@
 from arcpy import Describe
 
-from procedures import create_island_inner_buffers, create_grid, split_islands_into_grid, group_points_onto_islands, \
+from macro_viewshed_analysis.procedures import create_island_inner_buffers, create_grid, split_islands_into_grid, \
+    group_points_onto_islands, \
     get_highest_points_from_multipoint_features
-from procedures.viewshed import run_all_viewsheds
-from utils import run_func
+from macro_viewshed_analysis.procedures.viewshed import run_all_viewsheds
+from macro_viewshed_analysis.utils import run_func
 
 
 def run_full_analysis(sea_level, all_points, islands_poly, region_of_interest, distance_to_shore_meters, grid_width,

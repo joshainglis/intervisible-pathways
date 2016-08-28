@@ -1,7 +1,8 @@
-from procedures.shape2table import poly_to_table
-from procedures.viewshed import get_poly_rasters
-from os.path import join, exists
+from os.path import join
+
 import arcpy
+
+from macro_viewshed_analysis.procedures.shape2table import poly_to_table
 
 # ws = r'C:\Users\kasih_000\Documents\Wallacea Viewshed\Scratch\SL_Analysis4\sl_-85'
 ws = r'C:\Users\kasih_000\Documents\Wallacea Viewshed\Scratch\SL_Analysis5\sl_0'

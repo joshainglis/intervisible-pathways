@@ -5,7 +5,8 @@ from arcpy import Exists, Buffer_analysis, Intersect_analysis, GridIndexFeatures
     RasterToPolygon_conversion, RasterToMultipoint_3d, CreateFeatureclass_management, AddField_management
 from arcpy.sa import Con
 
-from utils import get_output_loc, print_fields, in_mem, tmp_name, get_insert_cursor, get_search_cursor, get_field_names
+from macro_viewshed_analysis.utils import get_output_loc, print_fields, in_mem, tmp_name, get_insert_cursor, \
+    get_search_cursor, get_field_names
 
 
 def create_sea_level_island_polygons(base_raster, sea_level, output_to=None, overwrite_existing=False):

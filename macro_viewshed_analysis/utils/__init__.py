@@ -5,12 +5,11 @@ from os import mkdir, makedirs
 from os.path import join, split, dirname
 from uuid import uuid4
 
-from config import TableNames as T
-
 import arcpy
 from arcpy import AddMessage, Exists, CopyFeatures_management
-from arcpy.da import SearchCursor
 from arcpy.sa import ExtractByMask
+
+from macro_viewshed_analysis.config import TableNames as T
 
 OBSERVER_GROUP_SIZE = 32
 

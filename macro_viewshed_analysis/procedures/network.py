@@ -5,8 +5,8 @@ import arcpy
 import click
 import networkx as nx
 
-from utils import get_search_cursor, cleanup, get_insert_cursor
-from config import TableNames as T, SaveLocations as S
+from macro_viewshed_analysis.config import TableNames as T
+from macro_viewshed_analysis.utils import get_search_cursor, get_insert_cursor
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

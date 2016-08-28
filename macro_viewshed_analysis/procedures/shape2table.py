@@ -2,8 +2,9 @@ from os.path import join
 
 import arcpy
 
-from utils import OBSERVER_GROUP_SIZE, get_search_cursor as gsc, get_insert_cursor as gic, tmp_name
-from config import TableNames as T, SaveLocations as S
+from macro_viewshed_analysis.config import TableNames as T, SaveLocations as S
+from macro_viewshed_analysis.utils import OBSERVER_GROUP_SIZE, get_search_cursor as gsc, get_insert_cursor as gic, \
+    tmp_name
 
 
 def save_table(fp, save_to):

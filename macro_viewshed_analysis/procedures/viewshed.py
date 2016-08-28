@@ -8,8 +8,9 @@ from arcpy import env, Describe, Raster
 from arcpy.da import InsertCursor, SearchCursor
 from arcpy.sa import Con, BitwiseAnd
 
-from utils import OBSERVER_GROUP_SIZE, reproject, tmp_name, get_search_cursor
-from config import TableNames as T, SaveLocations as S
+from macro_viewshed_analysis.config import TableNames as T, SaveLocations as S
+from macro_viewshed_analysis.utils import OBSERVER_GROUP_SIZE, reproject, tmp_name, get_search_cursor
+
 
 def create_temp_point_table(spatial_reference):
     fp = arcpy.CreateFeatureclass_management(

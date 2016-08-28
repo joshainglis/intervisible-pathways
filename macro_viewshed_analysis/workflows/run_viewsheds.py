@@ -4,7 +4,7 @@ import arcpy
 import click
 from arcpy import env
 
-from procedures.viewshed import run_all_viewsheds
+from macro_viewshed_analysis.procedures.viewshed import run_all_viewsheds
 
 arcpy.CheckOutExtension("Spatial")
 

@@ -4,13 +4,12 @@ ArcGIS Module to select gridded highest points within a given area of the coast 
 from arcgisscripting import ExecuteError
 from os.path import join
 
-# noinspection PyUnresolvedReferences
-import arcpy
 from arcpy import env, CheckOutExtension, GetParameterAsText, CopyFeatures_management, AddMessage
-from procedures import create_sea_level_island_polygons
-from procedures import generate_points_from_raster
-from utils import create_dirs
-from workflows import run_full_analysis
+
+from macro_viewshed_analysis.procedures import create_sea_level_island_polygons
+from macro_viewshed_analysis.procedures import generate_points_from_raster
+from macro_viewshed_analysis.utils import create_dirs
+from macro_viewshed_analysis.workflows import run_full_analysis
 
 # Get CLI parameter values
 workspace = GetParameterAsText(0)
