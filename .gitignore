@@ -2,19 +2,6 @@
 ### IPythonNotebook template
 # Temporary data
 .ipynb_checkpoints/
-### VirtualEnv template
-# Virtualenv
-# http://iamzed.com/2009/05/07/a-primer-on-virtualenv/
-.Python
-[Bb]in
-[Ii]nclude
-[Ll]ib
-[Ll]ib64
-[Ll]ocal
-[Ss]cripts
-pyvenv.cfg
-.venv
-pip-selfcheck.json
 ### Python template
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -156,3 +143,5 @@ macro_viewshed_analysis/procedures/__init__.pyc
 macro_viewshed_analysis/procedures/viewshed.pyc
 macro_viewshed_analysis/utils/__init__.pyc
 viewshed.pyc
+docker-compose.yml
+make_network_table.py

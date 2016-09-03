@@ -1,0 +1,29 @@
+FROM fedora:24
+
+VOLUME /in
+VOLUME /out
+
+WORKDIR /code
+
+RUN dnf -y upgrade \
+    && dnf -y install \
+        gcc \
+        gcc-c++ \
+        gdal-devel \
+        geos-devel \
+        python-devel \
+        python-numpy \
+        redhat-rpm-config \
+    && pip install --upgrade pip \
+    && pip install \
+        fiona \
+        rasterio \
+        shapely \
+    && dnf clean all
+
+COPY ./raster2polygon.py /code
+
+ENV 
+
+ENTRYPOINT ["/usr/bin/python", "/code/raster2polygon.py"]
+CMD ['--help']
