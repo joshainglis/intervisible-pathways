@@ -139,19 +139,24 @@ def visualise_network(graph, workspace, output_name, islands_feature):
 
 @click.command()
 @click.option('--overwrite/--no-overwrite', default=False)
+@click.option('--save-graph', default=None, type=click.Path())
+@click.option('--make-shape', default=None, type=click.STRING)
 @click.argument('workspace',
                 type=click.Path(exists=True, file_okay=False, dir_okay=True, resolve_path=True, writable=True))
 @click.argument('viewsheds', type=click.STRING)
 @click.argument('islands', type=click.STRING)
-@click.argument('out-file-name', type=click.STRING)
-def build_and_output_network(workspace, viewsheds, islands, out_file_name, overwrite):
+def build_and_output_network(workspace, viewsheds, islands, overwrite, save_graph, make_shape):
     arcpy.CheckOutExtension("Spatial")
     arcpy.env.workspace = workspace
     arcpy.env.overwriteOutput = overwrite
 
     g = build_network(viewsheds, islands)
-    network = visualise_network(g, workspace, out_file_name, islands)
-    logger.info("SUCCESS: output written to %s", network)
+    if save_graph is not None:
+        nx.write_weighted_edgelist(g, save_graph)
+        logger.info("SUCCESS: graph saved to %s", save_graph)
+    if make_shape:
+        network = visualise_network(g, workspace, make_shape, islands)
+        logger.info("SUCCESS: output written to %s", network)
 
 
 if __name__ == '__main__':

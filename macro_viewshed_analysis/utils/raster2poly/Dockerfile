@@ -1,4 +1,5 @@
 FROM gliderlabs/alpine:3.4
+MAINTAINER Josha Inglis <joshainglis@gmail.com>
 
 VOLUME /in
 VOLUME /out
@@ -32,9 +33,9 @@ RUN apk --update add --virtual build-dependencies \
         shapely \
     && apk del build-dependencies
 
-COPY ./raster2polygon.py /code
+COPY ./disaggregate_viewsheds.py /code
 
 ENV VIEWSHEDS_PER_FILE=32
 ENV OVERFLOW=31
 
-ENTRYPOINT ["/usr/bin/python", "/code/raster2polygon.py"]
+ENTRYPOINT ["/usr/bin/python", "/code/disaggregate_viewsheds.py"]
