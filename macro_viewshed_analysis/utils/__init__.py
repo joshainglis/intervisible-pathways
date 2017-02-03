@@ -1,7 +1,7 @@
 from arcgisscripting import Raster
 from contextlib import contextmanager
 from genericpath import exists
-from os import mkdir, makedirs
+from os import mkdir, makedirs, getenv
 from os.path import join, split, dirname
 from uuid import uuid4
 
@@ -11,7 +11,7 @@ from arcpy.sa import ExtractByMask
 
 from macro_viewshed_analysis.config import TableNames as T
 
-OBSERVER_GROUP_SIZE = 32
+OBSERVER_GROUP_SIZE = int(getenv('OBSERVER_GROUP_SIZE', '32'))
 
 
 @contextmanager
@@ -62,6 +62,9 @@ def create_dirs(dirs):
 
 
 def tmp_name():
+    """
+    :rtype: str
+    """
     return 'tmp{}'.format(uuid4().hex)
 
 
@@ -74,6 +77,15 @@ def in_mem(var):
 
 
 def get_output_loc(given, default):
+    """
+
+    :param given:
+    :type given:
+    :param default:
+    :type default:
+    :return:
+    :rtype:
+    """
     return in_mem(default) if given is None else given
 
 

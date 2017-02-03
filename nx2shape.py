@@ -13,12 +13,23 @@ OUTPUT_FOLDER = join(expanduser('~'), 'PycharmProjects', 'abm', 'output')
 
 to_extract = [
     {
-        'name': '20161115_221012',
+        'name': '20161218_115935',
         'scenarios': [
-            {'name': 'all_slow', 'folder': 'north_slow', 'origins': ['north', 'south', 'taiwan', 'palawan']},
-            {'name': 'north_slow', 'folder': 'north_slow', 'origins': ['north']},
-            {'name': 'south_slow', 'folder': 'south_slow', 'origins': ['south']},
-            {'name': 'taiwan_slow', 'folder': 'taiwan_slow', 'origins': ['taiwan']},
+            {'name': 'all_demog', 'folder': 'north_demog', 'origins': ['north', 'south', 'taiwan', 'palawan']},
+            {'name': 'north_demog', 'folder': 'north_demog', 'origins': ['north']},
+            {'name': 'north_palawan_demog', 'folder': 'north_palawan_demog', 'origins': ['north', 'palawan']},
+            {'name': 'palawan_demog', 'folder': 'palawan_demog', 'origins': ['palawan']},
+            {'name': 'south_demog', 'folder': 'south_demog', 'origins': ['south']},
+            {'name': 'south_north_demog', 'folder': 'south_north_demog', 'origins': ['south', 'north']},
+            {'name': 'south_palawan_demog', 'folder': 'south_palawan_demog', 'origins': ['south', 'palawan']},
+            {'name': 'taiwan_demog', 'folder': 'taiwan_demog', 'origins': ['taiwan']},
+            {'name': 'taiwan_north_demog', 'folder': 'taiwan_north_demog', 'origins': ['taiwan', 'north']},
+            {'name': 'taiwan_palawan_demog', 'folder': 'taiwan_palawan_demog', 'origins': ['taiwan', 'palawan']},
+            {'name': 'taiwan_south_demog', 'folder': 'taiwan_south_demog', 'origins': ['taiwan', 'south']},
+            {'name': 'north_oft', 'folder': 'north_oft', 'origins': ['north']},
+            {'name': 'palawan_oft', 'folder': 'palawan_oft', 'origins': ['palawan']},
+            {'name': 'south_oft', 'folder': 'south_oft', 'origins': ['south']},
+            {'name': 'taiwan_oft', 'folder': 'taiwan_oft', 'origins': ['taiwan']},
         ]
     }
 ]

@@ -7,7 +7,8 @@ from arcpy import env
 
 arcpy.CheckOutExtension("Spatial")
 
-workspace = join(expanduser('~'), 'Documents', 'Wallacea Viewshed', 'Scratch', 'SL_Analysis', 'sl_-85')
+# workspace = join(expanduser('~'), 'Documents', 'Wallacea Viewshed', 'Scratch', 'SL_Analysis', 'sl_-85')
+workspace = join(expanduser('~'), 'Documents', 'JASR_VS', 'Working', 'Analyses', 'sl_0')
 env.workspace = workspace
 env.overwriteOutput = True
 
