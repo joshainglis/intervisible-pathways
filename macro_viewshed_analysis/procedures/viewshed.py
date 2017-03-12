@@ -4,12 +4,12 @@ from os import makedirs
 from os.path import join
 
 import arcpy
-from arcpy import env, Describe, Raster
+from arcpy import Describe, Raster, env
 from arcpy.da import InsertCursor, SearchCursor
-from arcpy.sa import Con, BitwiseAnd
+from arcpy.sa import BitwiseAnd, Con
 
-from macro_viewshed_analysis.config import TableNames as T, SaveLocations as S
-from macro_viewshed_analysis.utils import OBSERVER_GROUP_SIZE, reproject, tmp_name, get_search_cursor
+from macro_viewshed_analysis.config import SaveLocations as S, TableNames as T
+from macro_viewshed_analysis.utils import OBSERVER_GROUP_SIZE, get_search_cursor, reproject, tmp_name
 
 
 def create_temp_point_table(spatial_reference):
@@ -61,29 +61,44 @@ def run_multi_viewshed(tmp_table, d, m,
 
     arcpy.CopyFeatures_management(tmp_table, save_observers_to)
 
-    arcpy.AddMessage("doing viewshed {} of {}".format(c, total_rasters))
-    out_raster, _, _ = arcpy.Viewshed2_3d(
-        in_raster=sea_level_raster,
-        in_observer_features=tmp_table,
-        out_raster=save_raster_to,
-        out_agl_raster=None,
-        analysis_type="OBSERVERS",
-        vertical_error="0 Meters",
-        out_observer_region_relationship_table=save_observer_relations_to,
-        refractivity_coefficient="0.13",
-        surface_offset="0 Meters",
-        observer_elevation="Z",
-        observer_offset="2 Meters",
-        inner_radius=None,
-        inner_radius_is_3d="GROUND",
-        outer_radius="300 Kilometers",
-        outer_radius_is_3d="GROUND",
-        horizontal_start_angle="0",
-        horizontal_end_angle="360",
-        vertical_upper_angle="90",
-        vertical_lower_angle="-90",
-        analysis_method="PERIMETER_SIGHTLINES"
-    )
+    with get_search_cursor(tmp_table, [
+        T.SHAPE,
+        T.Z,
+        T.ISLAND_ID,
+        T.SPLIT_ISLAND_ID,
+        T.ISLAND_GRID_ID,
+        T.VIEWPOINT_ID,
+        T.OBSERVER
+    ]) as t:
+        arcpy.AddMessage(len(list(t)))
+
+    if c not in {9}:
+        try:
+            arcpy.AddMessage("doing viewshed {} of {}".format(c, total_rasters))
+            out_raster, _, _ = arcpy.Viewshed2_3d(
+                in_raster=sea_level_raster,
+                in_observer_features=tmp_table,
+                out_raster=save_raster_to,
+                out_agl_raster=None,
+                analysis_type="OBSERVERS",
+                vertical_error="0 Meters",
+                out_observer_region_relationship_table=save_observer_relations_to,
+                refractivity_coefficient="0.13",
+                surface_offset="0 Meters",
+                observer_elevation="Z",
+                observer_offset="2 Meters",
+                inner_radius=None,
+                inner_radius_is_3d="GROUND",
+                outer_radius="300 Kilometers",
+                outer_radius_is_3d="GROUND",
+                horizontal_start_angle="0",
+                horizontal_end_angle="360",
+                vertical_upper_angle="90",
+                vertical_lower_angle="-90",
+                analysis_method="PERIMETER_SIGHTLINES"
+            )
+        except Exception as e:
+            arcpy.AddMessage(e.message)
 
     return reset_tmp(spatial_reference, tmp_table)
 
@@ -93,6 +108,31 @@ def get_viewshed_groups(tmp_tbl, insert_cursor, row, i, total_rows,
                         overwrite_existing):
     d, m = divmod(i, OBSERVER_GROUP_SIZE)
     if (i > 0 and m == 0) or (i == (total_rows - 1)):
+        arcpy.AddMessage(
+            """
+            tmp_tbl: {tmp_tbl},
+            d: {d},
+            m: {m},
+            viewshed_folder: {viewshed_folder},
+            ws: {ws},
+            tmp_table_folder: {tmp_table_folder},
+            sea_level_raster: {sea_level_raster},
+            spatial_reference: {spatial_reference},
+            total_rasters: {total_rasters},
+            overwrite_existing: {overwrite_existing}
+            """.format(
+                tmp_tbl=tmp_tbl,
+                d=d,
+                m=m,
+                viewshed_folder=viewshed_folder,
+                ws=ws,
+                tmp_table_folder=tmp_table_folder,
+                sea_level_raster=sea_level_raster,
+                spatial_reference=spatial_reference,
+                total_rasters=total_rasters,
+                overwrite_existing=overwrite_existing,
+            )
+        )
         tmp_tbl, insert_cursor = run_multi_viewshed(
             tmp_tbl, d, m,
             viewshed_folder, ws, tmp_table_folder, sea_level_raster, spatial_reference, total_rasters,
@@ -127,10 +167,14 @@ def run_all_viewsheds(sea_level, ws, viewpoints, dem, spatial_reference=None, ov
     tmp_tbl, insert_cursor = reset_tmp(spatial_reference)
     with get_search_cursor(viewpoints, [T.SHAPE, T.Z, T.ISLAND_ID, T.SPLIT_ISLAND_ID, T.ISLAND_GRID_ID, T.ID]) as vp_sc:
         for i, row in enumerate(vp_sc):
-            tmp_tbl, insert_cursor = get_viewshed_groups(
-                tmp_tbl, insert_cursor, row, i, total_rows,
-                viewshed_folder, point_table_folder, tmp_table_folder, slr, spatial_reference, total_rasters,
-                overwrite_existing)
+            try:
+                tmp_tbl, insert_cursor = get_viewshed_groups(
+                    tmp_tbl, insert_cursor, row, i, total_rows,
+                    viewshed_folder, point_table_folder, tmp_table_folder, slr, spatial_reference, total_rasters,
+                    overwrite_existing)
+            except Exception as e:
+                arcpy.AddMessage(e.message)
+                continue
     env.overwriteOutput = overwrite_existing
 
 
