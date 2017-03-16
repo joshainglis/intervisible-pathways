@@ -25,7 +25,6 @@ save_intermediate = bool(eval(GetParameterAsText(9).title()))
 out_workspace = GetParameterAsText(10)
 overwrite_existing = bool(eval(GetParameterAsText(11).title()))
 
-# workspace = join(expanduser('~'), 'Documents', 'Wallacea Viewshed', 'Scratch')
 env.workspace = workspace
 env.overwriteOutput = overwrite_existing
 
